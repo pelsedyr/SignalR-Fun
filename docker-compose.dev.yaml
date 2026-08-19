@@ -1,0 +1,44 @@
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.36.0
+    container_name: azurite
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    networks:
+      - d-avdekl-notifications
+
+  servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
+    container_name: servicebus-emulator
+    pull_policy: always
+    ports:
+      - "5672:5672"
+      - "5300:5300"
+    volumes:
+      - ./servicebus-emulator.config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    environment:
+      ACCEPT_EULA: "Y"
+      EMULATOR_HTTP_PORT: 5300
+      MSSQL_SA_PASSWORD: "1StrongPwd!!"
+      SQL_SERVER: mssql
+    depends_on:
+      - mssql
+    networks:
+      - d-avdekl-notifications
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2025-CU8-ubuntu-24.04
+    container_name: servicebus-emulator-mssql
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "1StrongPwd!!"
+      MSSQL_PID: "Developer"
+    networks:
+      - d-avdekl-notifications
+
+networks:
+  d-avdekl-notifications:
