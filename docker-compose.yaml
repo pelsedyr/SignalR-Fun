@@ -1,4 +1,18 @@
 services:
+  signalr-emulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: signalr-emulator
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./signalr-emulator.settings.json:/app/settings.json:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - d-avdekl-notifications
+
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
     container_name: azurite
