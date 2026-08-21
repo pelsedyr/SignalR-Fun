@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders the SignalR receiver interface', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /følg varslene/i })).toBeInTheDocument();
+  expect(screen.getByLabelText(/mottaker-id/i)).toHaveValue('user-123');
 });
