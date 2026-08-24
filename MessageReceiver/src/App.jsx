@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { MdAlertMessage, MdBadge, MdButton, MdIconCheckCircle, MdIconInfo, MdIconPerson, MdIconSchedule, MdInput } from '@miljodirektoratet/md-react';
 import './App.css';
+import miljodirektoratetLogo from './assets/miljodirektoratet-logo-white.svg';
 
 function formatMessage(body) {
   return typeof body === 'string' ? body : JSON.stringify(body, null, 2);
@@ -56,10 +57,8 @@ function App() {
   return (
     <div className="app-shell">
       <header className="app-header"><div className="header-content">
-        <div className="brand-mark" aria-hidden="true"><span /></div>
-        <p className="eyebrow">SignalR · meldingsmottaker</p>
-        <h1>Følg varslene mens de skjer</h1>
-        <p className="lede">Koble til en mottaker-ID for å se varsler sendt via Service Bus og SignalR.</p>
+        <img className="brand-logo" src={miljodirektoratetLogo} alt="Miljødirektoratet" />
+        <div><p className="eyebrow">SignalR · meldingsmottaker</p><h1>Følg varslene mens de skjer</h1></div>
       </div></header>
 
       <main className="main-content">
