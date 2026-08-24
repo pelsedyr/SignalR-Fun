@@ -13,6 +13,47 @@ services:
     networks:
       - d-avdekl-notifications
 
+  message-hub:
+    build:
+      context: ./MessageHub
+    container_name: message-hub
+    # Published on 7071 so the emulator's host.docker.internal:7071 upstream, the Vite
+    # /api proxy and the .vscode/.zed tasks all keep working unchanged. Stop this service
+    # to free the port and run `func start` on the host instead.
+    ports:
+      - "7071:80"
+    environment:
+      AzureWebJobsStorage: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+      ServiceBusConnection: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+      # Double underscores, not colons: .NET config maps __ to : when reading env vars,
+      # which is what the %...% binding expressions resolve against.
+      Email__ServiceBus__DefaultQueue: "d-avdekl-notifications"
+      # Endpoint is how *this container* reaches the emulator; ClientEndpoint is what
+      # negotiate hands the *browser*, which can't resolve compose service names.
+      AzureSignalRConnectionString: "Endpoint=http://signalr-emulator:8888;AccessKey=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH;Version=1.0;ClientEndpoint=http://localhost:8888;"
+      Notifications__HubName: "notifications"
+    depends_on:
+      - azurite
+      - servicebus-emulator
+      - signalr-emulator
+    # The Service Bus emulator has no shell, so it can't carry a healthcheck; the wait for
+    # it lives in MessageHub/docker-entrypoint.sh instead. This policy is only a safety net
+    # for a genuine crash — the Functions host does not exit when a listener can't connect.
+    restart: on-failure
+    # `docker compose watch` rebuilds and recreates the container on save. Rebuilding
+    # beats an in-container dotnet watch, which re-registers functions into a live host.
+    develop:
+      watch:
+        - action: rebuild
+          path: ./MessageHub
+          ignore:
+            - bin/
+            - obj/
+            - .vscode/
+            - local.settings.json
+    networks:
+      - d-avdekl-notifications
+
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
     container_name: azurite
