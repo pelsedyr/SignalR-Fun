@@ -54,6 +54,43 @@ services:
     networks:
       - d-avdekl-notifications
 
+  message-receiver:
+    build:
+      context: ./MessageReceiver
+    container_name: message-receiver
+    # 1:1 mapping is deliberate. Vite's HMR client connects back to the same
+    # host:port the page was served from, so remapping would break hot reload.
+    ports:
+      - "5173:5173"
+    environment:
+      # Hairpins through the published host port 7071 -- the same trick the
+      # signalr-emulator upstream uses. message-hub:80 would be one hop shorter
+      # but would break the `docker compose stop message-hub` + `func start`
+      # fallback, since that moves the function off the compose network.
+      API_PROXY_TARGET: "http://host.docker.internal:7071"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - message-hub
+    develop:
+      watch:
+        # Source edits sync into the running container; Vite hot-reloads them.
+        # No rebuild, unlike message-hub -- Vite's HMR is reliable where an
+        # in-container dotnet watch was not.
+        - action: sync
+          path: ./MessageReceiver
+          target: /app
+          ignore:
+            - node_modules/
+            - dist/
+        # Dependencies are the only thing that needs a new image.
+        - action: rebuild
+          path: ./MessageReceiver/package.json
+        - action: rebuild
+          path: ./MessageReceiver/package-lock.json
+    networks:
+      - d-avdekl-notifications
+
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
     container_name: azurite

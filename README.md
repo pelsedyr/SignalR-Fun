@@ -6,7 +6,7 @@ Everything runs on emulators — no Azure subscription, no cloud resources.
 
 ```
 ServiceBusPostTool ──▶ Service Bus emulator ──▶ MessageHub ──▶ SignalR emulator ──▶ MessageReceiver
-     (CLI, host)          (container)          (container)      (container)        (browser)
+     (CLI, host)          (container)          (container)      (container)     (container → browser)
 ```
 
 `MessageHub` is the interesting part: a `ServiceBusTrigger` reads the queue, deserializes
@@ -17,9 +17,10 @@ negotiated with that user id.
 ## Quick start
 
 ```bash
-docker compose up -d --build          # emulators + the function
-cd MessageReceiver && npm install && npm run dev
+docker compose up -d --build
 ```
+
+That's the whole stack — emulators, the function and the frontend.
 
 Open http://localhost:5173, connect as `user-123`, then in another terminal:
 
@@ -34,32 +35,41 @@ The notification should appear in the browser within a second.
 | Path | What it is | How it runs |
 |---|---|---|
 | `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate` (HTTP) + `MessageTrigger` (Service Bus → SignalR) | container, port 7071 |
-| `MessageReceiver/` | React 19 + Vite SPA using `@microsoft/signalr` | host, `npm run dev`, port 5173 |
+| `MessageReceiver/` | React 19 + Vite SPA using `@microsoft/signalr` | container, port 5173 |
 | `cli/ServiceBusPostTool/` | Posts `NotificationDto` messages onto the queue | host, `dotnet run` |
 | `cli/ServiceBusPeekTool/` | Non-destructive queue watcher; drains on exit | host, `dotnet run` |
 | `Dockerfile` | Builds the Azure SignalR emulator image | container, port 8888 |
 | `servicebus-emulator.config.json` | Declares the `d-avdekl-notifications` queue | mounted into the emulator |
 | `signalr-emulator.settings.json` | Upstream webhook template | mounted into the emulator |
 
-Ports: `7071` function · `8888` SignalR emulator · `5672`/`5300` Service Bus emulator ·
-`10000-10002` Azurite · `1433` MSSQL (backing store for the Service Bus emulator).
+Ports: `5173` frontend · `7071` function · `8888` SignalR emulator · `5672`/`5300`
+Service Bus emulator · `10000-10002` Azurite · `1433` MSSQL (backing store for the
+Service Bus emulator).
 
 ## Prerequisites
 
-Docker with Compose v2.22+ (for `docker compose watch`), .NET 10 SDK and Node 20+ for the
-host-side pieces. Azure Functions Core Tools only if you want to run the function on the
-host — see below.
+Docker with Compose v2.22+ (for `docker compose watch`) and the .NET 10 SDK for the CLI
+tools. Node 20+ and Azure Functions Core Tools are only needed if you want to run the
+frontend or the function on the host instead of in a container — see below.
 
-## Working on MessageHub
+## The dev loop
 
 ```bash
 docker compose watch
 ```
 
-Leave that running. Saving any file under `MessageHub/` rebuilds the image and recreates
-the container — measured at **~26 seconds from save to a serving endpoint**. `bin/`,
-`obj/`, `.vscode/` and `local.settings.json` are ignored, so editing those doesn't trigger
-a pointless rebuild.
+Leave that running. It covers both code services, but they behave differently on save
+because their reload stories are different:
+
+| Save a file in | What happens | Turnaround |
+|---|---|---|
+| `MessageReceiver/` | files sync into the running container, Vite hot-reloads | sub-second |
+| `MessageHub/` | image rebuilds, container is recreated | ~26 s |
+
+Ignores are set up so pointless work doesn't happen: `node_modules/` and `dist/` for the
+frontend, `bin/`, `obj/`, `.vscode/` and `local.settings.json` for the function. Changing
+`MessageReceiver/package.json` or `package-lock.json` is the one frontend edit that *does*
+force a rebuild, since dependencies live in the image.
 
 To rebuild on demand instead:
 
@@ -68,23 +78,28 @@ docker compose up -d --build message-hub
 docker compose logs -f message-hub
 ```
 
-**`docker compose watch` only watches `./MessageHub`.** Changes to `docker-compose.yaml`
-itself — ports, env vars, connection strings — are *not* picked up. Apply those with
-`docker compose up -d`.
+**`docker compose watch` only watches `./MessageHub` and `./MessageReceiver`.** Changes to
+`docker-compose.yaml` itself — ports, env vars, connection strings — are *not* picked up.
+Apply those with `docker compose up -d`.
 
-### Running it on the host instead
+### Running either one on the host instead
 
-The container publishes port **7071**, the same port `func start` uses, so the SignalR
-emulator's upstream, the Vite `/api` proxy and the editor tasks don't care which of the
-two is running. They can't both hold the port, so stop the container first:
+Both containers publish the same port their host tooling uses — 7071 for `func start`,
+5173 for `npm run dev` — so the SignalR emulator's upstream, the `/api` proxy and the
+editor tasks don't care which side is running. Stop the container to free the port:
 
 ```bash
-docker compose stop message-hub
-cd MessageHub && func start
+docker compose stop message-hub      && cd MessageHub      && func start
+docker compose stop message-receiver && cd MessageReceiver && npm run dev
 ```
 
-This is worth doing when you're iterating hard on the function or want a debugger
-attached — the `func start` loop is a few seconds versus ~26 for a container rebuild.
+Worth doing for MessageHub when you're iterating hard or want a debugger attached — the
+`func start` loop is a few seconds versus ~26 for a container rebuild. Rarely worth it for
+the frontend, since the container already hot-reloads.
+
+**Watch out:** `func start` fails loudly if 7071 is taken, but Vite does *not* — it prints
+`Port 5173 is in use, trying another one...` and quietly moves to **5174**. If the page
+looks stale, check whether the container is still holding 5173.
 
 ## Configuration
 
@@ -108,14 +123,28 @@ Two container-only details that are easy to get wrong:
 
 Keep the two sides in sync when you add a setting.
 
+The frontend has one setting of the same shape, `API_PROXY_TARGET`, read by
+`MessageReceiver/vite.config.js`:
+
+| | Host (`npm run dev`) | Container |
+|---|---|---|
+| `API_PROXY_TARGET` | unset → falls back to `http://localhost:7071` | `http://host.docker.internal:7071` |
+
+Inside a container `localhost` is the container itself, so the proxy has to reach out to
+the host. Going straight to `message-hub:80` over the compose network would be one hop
+shorter, but it would break as soon as you stop the container and run `func start` — the
+hairpin through host port 7071 works either way. Note the name is deliberately *not*
+`VITE_`-prefixed, which keeps it server-side and out of the client bundle.
+
 ## Handy commands
 
 ```bash
 docker compose logs -f message-hub                        # function logs
+docker compose logs -f message-receiver                   # Vite output, incl. HMR updates
 docker compose ps                                         # what's up
 cd cli/ServiceBusPeekTool && dotnet run                    # watch the queue (Q to quit + drain)
 cd cli/ServiceBusPostTool && dotnet run                    # interactive post mode
-curl -sX POST 'http://localhost:7071/api/negotiate?userId=user-123'
+curl -sX POST 'http://localhost:5173/api/negotiate?userId=user-123'   # tests the whole proxy chain
 docker compose down                                       # stop everything
 ```
 
@@ -123,6 +152,38 @@ Both CLI tools read `SERVICEBUS_CONNECTION` and `SERVICEBUS_QUEUE` from the envi
 default to the emulator and `d-avdekl-notifications`.
 
 ## Recent changes
+
+### MessageReceiver is now containerized too
+
+The frontend was the last host-only piece, so the quick start needed two commands and a
+`npm install`. It's now a `message-receiver` service and `docker compose up -d --build`
+brings up the whole thing.
+
+- **`MessageReceiver/Dockerfile`** — `node:24-slim` running the Vite dev server. Debian
+  rather than Alpine on purpose: `package-lock.json` pins glibc-variant native bindings
+  (`@rollup/rollup-linux-x64-gnu`, oxlint's `-gnu` bindings), and matching the libc avoids
+  a whole class of `npm ci` platform failures for no meaningful size win.
+- **`--host 0.0.0.0` passed on the command line**, not set in `vite.config.js`. Vite binds
+  loopback by default, which is unreachable from outside the container — but the host
+  workflow shouldn't start exposing itself to the LAN as a side effect.
+- **`API_PROXY_TARGET`** in `vite.config.js` (see Configuration above) — the only source
+  change this needed.
+- **Port `5173:5173`, mapped 1:1 deliberately.** Vite's HMR client connects back to the
+  same host:port the page was served from, so remapping would break hot reload.
+
+**This is shaped differently from MessageHub, and that's the point.** MessageHub uses a
+production-style image and rebuilds on every save because in-container `dotnet watch`
+crashed the host (below). Vite has none of that problem — it has real HMR — so the
+frontend uses `action: sync` instead of `action: rebuild`, and only `package.json` /
+`package-lock.json` changes produce a new image. Copying MessageHub's approach here would
+have turned a sub-second reload into a ~20 s rebuild, which would have been a downgrade
+from running it on the host.
+
+Verified end to end: editing `App.jsx` under `docker compose watch` logs
+`Syncing service "message-receiver"` and `[vite] (client) hmr update /src/App.jsx` with no
+rebuild, while touching `package.json` rebuilds `message-receiver` alone; a Service Bus
+message still lands in a SignalR client that negotiated through the container's `/api`
+proxy.
 
 ### MessageHub is now containerized
 

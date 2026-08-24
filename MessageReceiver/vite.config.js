@@ -17,7 +17,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:7071',
+      // Unset on the host, so `npm run dev` still proxies to localhost:7071.
+      // The container sets it, because inside a container localhost is the
+      // container itself. Not VITE_-prefixed: this stays server-side and must
+      // not be inlined into the client bundle.
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:7071',
     },
   },
 })
