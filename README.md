@@ -258,8 +258,46 @@ The payload is deliberately ignored by `App.jsx`, which just debounces 300 ms an
 Refetching unconditionally is what makes duplicate and out-of-order pushes harmless, and it also
 picks up changes no nudge announced — a mark-as-read from another tab, for instance.
 
-Azure SignalR drops messages aimed at a user with no live connection, so a missed nudge costs
-nothing: the notification is already in Cosmos and appears on the next fetch.
+#### Offline recipients: the nudge is always *sent*, only online users *receive* it
+
+`MessageTrigger` returns the `SignalRMessageAction` unconditionally — there is no online check
+anywhere in the code path. Azure SignalR then looks up connections mapped to that user id:
+
+| Recipient state | What happens |
+|---|---|
+| Has one or more connections | Delivered to all of them |
+| No connections | **The service drops it silently** — no error, no callback, no retry, nothing logged |
+
+**The Function cannot tell the difference, and reports success either way.** Posting to a user
+with nothing connected anywhere:
+
+```
+Executed 'Functions.MessageTrigger' (Succeeded, Duration=14ms)
+```
+
+That is not a gap in the implementation — Azure SignalR offers no delivery confirmation for
+`UserId`-targeted sends. There is nothing to check and nothing to retry.
+
+**This is exactly what the design is built around.** The ordering is what matters:
+
+```
+persist to Cosmos   ← durable, always happens
+       ↓
+push the nudge      ← best-effort, may go nowhere
+```
+
+A dropped nudge costs nothing, because the notification is already durable. On the user's next
+connect, `App.jsx` calls the backfill straight after `connection.start()` and picks up everything
+missed — including items sent hours earlier. The live path can fail entirely without affecting
+correctness.
+
+Contrast with the pre-Cosmos code, where the push *was* the delivery: a user offline for ten
+seconds lost the notification permanently, and every metric still said success.
+
+**Don't gate on "is the user online".** Azure SignalR's Management SDK can check user existence
+(`HEAD /api/v1/hubs/{hub}/users/{userId}`), but it is racy — the user can connect or disconnect
+between the check and the send — so the Cosmos fallback is needed regardless. It would add a REST
+round-trip and a new failure mode to avoid an operation that is already harmless and free.
 
 ## Handy commands
 
