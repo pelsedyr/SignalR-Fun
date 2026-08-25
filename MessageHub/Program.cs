@@ -1,43 +1,44 @@
-using MessageHub;
+using MessageHub.Exceptions;
+using MessageHub.Extensions.Logger;
+using MessageHub.Repositories;
+using MessageHub.Static;
+using MessageHub.Static.Seed;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using static MessageHub.Static.Strings;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
+// The ASP.NET Core-integrated worker model. Required for NegotiateController to write its
+// response body correctly — do not swap this for the plain worker defaults.
 builder.ConfigureFunctionsWebApplication();
 
-builder.Services.AddSingleton(sp =>
-{
-    var config = sp.GetRequiredService<IConfiguration>();
-    return new CosmosOptions
-    {
-        ConnectionString = config["CosmosConnection"]
-            ?? throw new InvalidOperationException("CosmosConnection is not configured."),
-        DatabaseId = config["Cosmos:DatabaseId"] ?? "log",
-        ContainerId = config["Cosmos:ContainerId"] ?? "notifications",
-    };
-});
-
+//Cosmos
 // Singleton: CosmosClient is thread-safe and expensive to construct, and it owns the
-// connection pool -- creating one per invocation is the classic way to exhaust sockets.
-builder.Services.AddSingleton(sp =>
+// connection pool — creating one per invocation is the classic way to exhaust sockets.
+builder.Services.AddSingleton(serviceProvider =>
 {
-    var options = sp.GetRequiredService<CosmosOptions>();
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration[ConfigurationKeys.Cosmos.ConnectionString]
+        ?? throw new ConfigurationException(
+            string.Format(ExceptionMessages.Configuration.MissingConfigurationKey,
+                ConfigurationKeys.Cosmos.ConnectionString));
 
-    return new CosmosClient(options.ConnectionString, new CosmosClientOptions
+    return new CosmosClient(connectionString, new CosmosClientOptions
     {
         // Gateway mode because the emulator does not serve the Direct-mode backend protocol.
         //
         // LimitToEndpoint stops the SDK doing region discovery and pins it to the configured
-        // endpoint. Not strictly required here -- the emulator derives the endpoint it
-        // advertises in writableLocations from the request's Host header, so it correctly
-        // reports cosmosdb-emulator:8081 to this container and localhost:8081 to the host --
-        // but a single-region emulator has nothing to discover, and pinning removes a failure
-        // mode that would otherwise depend on that header being right.
+        // endpoint. Not strictly required — the emulator derives the endpoint it advertises in
+        // writableLocations from the request's Host header, so it correctly reports
+        // cosmosdb-emulator:8081 to this container and localhost:8081 to the host — but a
+        // single-region emulator has nothing to discover, and pinning removes a failure mode
+        // that would otherwise depend on that header being right.
         ConnectionMode = ConnectionMode.Gateway,
         LimitToEndpoint = true,
         SerializerOptions = new CosmosSerializationOptions
@@ -47,7 +48,34 @@ builder.Services.AddSingleton(sp =>
     });
 });
 
-builder.Services.AddSingleton<INotificationStore, CosmosNotificationStore>();
-builder.Services.AddHostedService<CosmosBootstrapper>();
+//Repositories
+builder.Services.AddSingleton<INotificationRepository, NotificationRepository>();
 
-builder.Build().Run();
+var host = builder.Build();
+
+//Provisioning — the emulator starts empty, and `docker compose down -v` returns it to empty.
+var configuration = host.Services.GetRequiredService<IConfiguration>();
+var startupLogger = host.Services.GetRequiredService<ILoggerFactory>()
+    .CreateLogger(nameof(CosmosBootstrapper));
+
+try
+{
+    await CosmosBootstrapper.EnsureProvisionedAsync(
+        host.Services.GetRequiredService<CosmosClient>(),
+        configuration[ConfigurationKeys.Cosmos.Database]
+            ?? throw new ConfigurationException(
+                string.Format(ExceptionMessages.Configuration.MissingConfigurationKey,
+                    ConfigurationKeys.Cosmos.Database)),
+        configuration[ConfigurationKeys.Cosmos.Container]
+            ?? throw new ConfigurationException(
+                string.Format(ExceptionMessages.Configuration.MissingConfigurationKey,
+                    ConfigurationKeys.Cosmos.Container)),
+        startupLogger);
+}
+catch (Exception ex)
+{
+    startupLogger.LogCosmosProvisioningFailed(ex);
+    throw;
+}
+
+await host.RunAsync();

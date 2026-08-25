@@ -44,7 +44,7 @@ The notification should appear in the browser within a second.
 
 | Path | What it is | How it runs |
 |---|---|---|
-| `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate`, `GetNotifications`, `MarkNotificationRead` (HTTP) + `MessageTrigger` (Service Bus → Cosmos → SignalR) | container, port 7071 |
+| `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate`, `GetNotifications`, `MarkNotificationRead` (HTTP) + `ServiceBusQueueTrigger` (Service Bus → Cosmos → SignalR) | container, port 7071 |
 | `MessageReceiver/` | React 19 + Vite SPA using `@microsoft/signalr`; renders from the REST API, nudged by SignalR | container, port 5173 |
 | `cli/ServiceBusPostTool/` | Posts `NotificationDto` messages onto the queue | host, `dotnet run` |
 | `cli/ServiceBusPeekTool/` | Non-destructive queue watcher; drains on exit | host, `dotnet run` |
@@ -260,7 +260,7 @@ picks up changes no nudge announced — a mark-as-read from another tab, for ins
 
 #### Offline recipients: the nudge is always *sent*, only online users *receive* it
 
-`MessageTrigger` returns the `SignalRMessageAction` unconditionally — there is no online check
+`ServiceBusQueueTrigger` returns the `SignalRMessageAction` unconditionally — there is no online check
 anywhere in the code path. Azure SignalR then looks up connections mapped to that user id:
 
 | Recipient state | What happens |
@@ -272,7 +272,7 @@ anywhere in the code path. Azure SignalR then looks up connections mapped to tha
 with nothing connected anywhere:
 
 ```
-Executed 'Functions.MessageTrigger' (Succeeded, Duration=14ms)
+Executed 'Functions.ServiceBusQueueTrigger' (Succeeded, Duration=14ms)
 ```
 
 That is not a gap in the implementation — Azure SignalR offers no delivery confirmation for
@@ -325,13 +325,52 @@ default to the emulator and `d-avdekl-notifications`.
 
 ## Recent changes
 
+### MessageHub reorganized to the Avdekl function-app structure
+
+The project had grown to twelve `.cs` files flat in the root, all in one namespace. It now
+follows the layout used by the sibling function apps in `ac-avdekl`:
+
+```
+Dto/  Models/  Repositories/  Functions/  Extensions/(Logger/)  Exceptions/  Static/
+```
+
+`Avdekl.Function.Email` was used as the template rather than `Avdekl.Function.Brreg`: Brreg is
+HTTP-only with no persistence, while Email is the house pattern for exactly this shape — a
+Service Bus queue trigger plus Cosmos repositories.
+
+- **`INotificationStore` / `CosmosNotificationStore` → `Repositories/INotificationRepository` /
+  `NotificationRepository`**, with the `(IConfiguration, CosmosClient)` constructor Email uses.
+- **Logging is now source-generated `[LoggerMessage]` extensions** under `Extensions/Logger/`.
+  Message text is unchanged, so existing log greps still work.
+- **Config keys are unchanged** — `CosmosConnection`, `Cosmos:DatabaseId`, `Cosmos:ContainerId`
+  keep their names and just move into `Static/Strings.ConfigurationKeys`. Renaming them to
+  Email's `Notifications:Cosmos:*` form would have rippled into `docker-compose.yaml` and
+  `local.settings.json` for no gain in a spike.
+- **`CosmosBootstrapper` moved from an `IHostedService` to a static `EnsureProvisionedAsync`**
+  called from `Program.cs`, mirroring Email's `EmailTemplateSeeder`.
+
+**One rename is visible at runtime:** the Service Bus trigger is now `ServiceBusQueueTrigger`,
+so logs read `Executed 'Functions.ServiceBusQueueTrigger'`. The three HTTP function names and
+every route are unchanged.
+
+**One thing that did not port cleanly.** Email's `CreateJsonResponse` extension writes the body
+with the synchronous `response.WriteString(...)`, which is fine under its `HostBuilder` host.
+This app uses `ConfigureFunctionsWebApplication()` (ASP.NET Core-integrated), where synchronous
+IO throws `Synchronous operations are disallowed`. Every HTTP endpoint returned 500 until the
+helper was made async — the same class of difference the comment in `NegotiateController`
+already described. Worth knowing before copying other helpers across.
+
+Verified as behaviour-preserving by capturing every endpoint's response before and after and
+diffing: identical, including status codes and error bodies. The nudge payload, the
+`CreateItemAsync`-not-upsert idempotency and `readUtc` preservation were all re-checked.
+
 ### Notifications are persisted in Cosmos DB; SignalR now only nudges
 
 Previously the trigger pushed the whole notification over SignalR and nothing was stored, so
 anything sent while the recipient was disconnected was lost, and a refresh emptied the list.
 Cosmos is now the durable inbox.
 
-- **`MessageTrigger`** writes a `NotificationDocument` (database `log`, container
+- **`ServiceBusQueueTrigger`** writes a `NotificationDocument` (database `log`, container
   `notifications`, partition key `/receiverId`) and then returns a nudge — `{ id, createdUtc }`,
   no content.
 - **New HTTP endpoints:** `GET /api/notifications?userId=&unread=` and

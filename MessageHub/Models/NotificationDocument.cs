@@ -1,4 +1,4 @@
-namespace MessageHub;
+namespace MessageHub.Models;
 
 // The durable record. Cosmos is the inbox; SignalR only ever nudges the client to re-read
 // from here. See the notifications-* notes for why this split exists.
