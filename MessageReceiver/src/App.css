@@ -192,6 +192,12 @@ h2 {
     color: var(--forest);
     font-size: 0.86rem;
 }
+/* The bell is an emoji, not an md-react icon -- the icon set has no bell. Size it
+   explicitly so it matches the neighbouring MdIconSchedule glyph. */
+.mark-read-button span[aria-hidden] {
+    font-size: 1.1rem;
+    line-height: 1;
+}
 @media (max-width: 650px) {
     .header-content {
         padding: 1rem 1.25rem;
