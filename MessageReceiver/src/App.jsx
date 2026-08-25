@@ -3,21 +3,43 @@ import * as signalR from '@microsoft/signalr';
 import { MdAlertMessage, MdBadge, MdButton, MdIconCheckCircle, MdIconInfo, MdIconPerson, MdIconSchedule, MdInput } from '@miljodirektoratet/md-react';
 import './App.css';
 import miljodirektoratetLogo from './assets/miljodirektoratet-logo-white.svg';
+import { fetchNotifications, markRead } from './api';
 
-function formatMessage(body) {
-  return typeof body === 'string' ? body : JSON.stringify(body, null, 2);
-}
+// Collapses a burst of nudges into one fetch. Several notifications arriving together produce
+// several nudges but a single request, so the pull path gets cheaper as the rate rises.
+const NUDGE_DEBOUNCE_MS = 300;
 
 function App() {
   const [userId, setUserId] = useState('user-123');
   const [status, setStatus] = useState('disconnected');
   const [notifications, setNotifications] = useState([]);
+  const [loadError, setLoadError] = useState(null);
   const connectionRef = useRef(null);
+  const refreshTimerRef = useRef(null);
+  // Read through a ref inside the SignalR callback: the handler is registered once per
+  // connection and would otherwise close over the userId from that render.
+  const userIdRef = useRef(userId);
+  useEffect(() => { userIdRef.current = userId; }, [userId]);
+
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
   const hasError = status.startsWith('error:');
+  const unreadCount = notifications.filter((n) => !n.readUtc).length;
+
+  // The single path that produces notifications. Every nudge, the initial backfill and every
+  // mark-as-read all funnel through here, so the rendered list always comes from Cosmos.
+  const refresh = useCallback(async (id) => {
+    try {
+      setNotifications(await fetchNotifications(id ?? userIdRef.current));
+      setLoadError(null);
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message);
+    }
+  }, []);
 
   const disconnect = useCallback(async () => {
+    clearTimeout(refreshTimerRef.current);
     if (connectionRef.current) {
       await connectionRef.current.stop();
       connectionRef.current = null;
@@ -34,20 +56,38 @@ function App() {
       if (!res.ok) throw new Error(`negotiate failed: ${res.status}`);
       const info = await res.json();
       const connection = new signalR.HubConnectionBuilder().withUrl(info.url, { accessTokenFactory: () => info.accessToken }).withAutomaticReconnect().build();
-      connection.on('notificationReceived', (body) => {
-        let parsed = body;
-        try { parsed = JSON.parse(body); } catch { /* retain plain text */ }
-        setNotifications((previous) => [{ receivedAt: new Date().toISOString(), body: parsed }, ...previous]);
+
+      // The push is a nudge — { id, createdUtc }, no content. It says "something changed",
+      // and the list is re-read from the API. The payload is deliberately ignored: refetching
+      // unconditionally is what makes duplicate and out-of-order pushes harmless, and it also
+      // picks up changes a nudge never announced (a mark-as-read from another tab).
+      connection.on('notificationReceived', () => {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => refresh(), NUDGE_DEBOUNCE_MS);
       });
+      connection.onreconnected(() => refresh());
       connection.onclose(() => setStatus('disconnected'));
+
       await connection.start();
       connectionRef.current = connection;
       setStatus('connected');
+      // Backfill: everything that arrived while disconnected is already in Cosmos.
+      await refresh(userId);
     } catch (err) {
       console.error(err);
       setStatus(`error: ${err.message}`);
     }
-  }, [userId, disconnect]);
+  }, [userId, disconnect, refresh]);
+
+  const onMarkRead = useCallback(async (id) => {
+    try {
+      await markRead(userIdRef.current, id);
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      setLoadError(err.message);
+    }
+  }, [refresh]);
 
   useEffect(() => () => { disconnect(); }, [disconnect]);
 
@@ -72,9 +112,10 @@ function App() {
         </section>
 
         <section className="inbox" aria-labelledby="inbox-heading">
-          <div className="inbox-heading"><div><p className="section-kicker">Innboks</p><h2 id="inbox-heading">Mottatte varsler</h2></div><span className="message-count">{notifications.length} {notifications.length === 1 ? 'varsel' : 'varsler'}</span></div>
+          <div className="inbox-heading"><div><p className="section-kicker">Innboks</p><h2 id="inbox-heading">Mottatte varsler</h2></div><span className="message-count">{unreadCount} uleste · {notifications.length} totalt</span></div>
           {hasError && <MdAlertMessage theme="error" label="Kunne ikke koble til" description={status.replace('error: ', '')} fullWidth />}
-          {notifications.length === 0 ? <div className="empty-state"><MdIconInfo /><h3>Ingen varsler ennå</h3><p>{isConnected ? 'Denne siden oppdateres automatisk når et varsel mottas.' : 'Koble til for å begynne å lytte etter varsler.'}</p></div> : <ol className="notification-list">{notifications.map((notification, index) => <li className="notification-card" key={`${notification.receivedAt}-${index}`}><div className="notification-meta"><span><MdIconSchedule /> {new Date(notification.receivedAt).toLocaleString('nb-NO')}</span><MdIconCheckCircle aria-label="Mottatt" /></div><pre>{formatMessage(notification.body)}</pre></li>)}</ol>}
+          {loadError && <MdAlertMessage theme="error" label="Kunne ikke hente varsler" description={loadError} fullWidth />}
+          {notifications.length === 0 ? <div className="empty-state"><MdIconInfo /><h3>Ingen varsler ennå</h3><p>{isConnected ? 'Denne siden oppdateres automatisk når et varsel mottas.' : 'Koble til for å hente varslene dine.'}</p></div> : <ol className="notification-list">{notifications.map((notification) => <li className={notification.readUtc ? 'notification-card is-read' : 'notification-card'} key={notification.id}><div className="notification-meta"><span><MdIconSchedule /> {new Date(notification.createdUtc).toLocaleString('nb-NO')}</span>{notification.readUtc ? <span className="read-flag"><MdIconCheckCircle aria-hidden="true" /> Lest</span> : <MdButton theme="tertiary" mode="small" onClick={() => onMarkRead(notification.id)}>Marker som lest</MdButton>}</div><p className="notification-content">{notification.content}</p></li>)}</ol>}
         </section>
       </main>
     </div>
