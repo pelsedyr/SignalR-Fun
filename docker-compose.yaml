@@ -34,6 +34,7 @@ services:
       Notifications__HubName: "notifications"
     depends_on:
       - azurite
+      - cosmosdb-emulator
       - servicebus-emulator
       - signalr-emulator
     # The Service Bus emulator has no shell, so it can't carry a healthcheck; the wait for
@@ -101,6 +102,16 @@ services:
     networks:
       - d-avdekl-notifications
 
+  cosmosdb-emulator:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260810
+    container_name: cosmosdb-emulator
+    ports:
+      - "8081:8081"
+      - "8080:8080"
+      - "1234:1234"
+    networks:
+      - d-avdekl-notifications
+
   servicebus-emulator:
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
     container_name: servicebus-emulator
@@ -120,6 +131,9 @@ services:
     networks:
       - d-avdekl-notifications
 
+  # Backing store for servicebus-emulator's own config/state, not a service any
+  # app code talks to directly. No volume: data is disposable and gets rebuilt
+  # from servicebus-emulator.config.json on every `docker compose up`.
   mssql:
     image: mcr.microsoft.com/mssql/server:2025-CU8-ubuntu-24.04
     container_name: servicebus-emulator-mssql
