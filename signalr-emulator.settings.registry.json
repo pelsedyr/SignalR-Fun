@@ -2,7 +2,7 @@
   "UpstreamSettings": {
     "Templates": [
       {
-        "UrlTemplate": "http://host.docker.internal:7071/runtime/webhooks/signalr",
+        "UrlTemplate": "http://message-hub:80/runtime/webhooks/signalr",
         "EventPattern": "*",
         "HubPattern": "*",
         "CategoryPattern": "*"

@@ -40,6 +40,78 @@ cd cli/ServiceBusPostTool && dotnet run -- user-123 "hei"
 
 The notification should appear in the browser within a second.
 
+## Registry deployment
+
+`docker-compose.registry.yaml` is intentionally separate from the development stack. It
+pulls pre-built images, serves the React bundle with Nginx instead of Vite, and exposes no
+application or emulator ports. It requires the public, HTTPS URL that a browser should use
+for the SignalR hub; Compose refuses to start if the value is absent.
+
+Build and push the three application images from a build machine (replace the prefix and tag
+with your registry location):
+
+```bash
+docker build -t registry.example.net/registry/signalr-fun/signalr-emulator:1.0.0 .
+docker build -t registry.example.net/registry/signalr-fun/message-hub:1.0.0 ./MessageHub
+docker build -t registry.example.net/registry/signalr-fun/message-receiver:1.0.0 \
+  -f MessageReceiver/Dockerfile.production ./MessageReceiver
+docker push registry.example.net/registry/signalr-fun/signalr-emulator:1.0.0
+docker push registry.example.net/registry/signalr-fun/message-hub:1.0.0
+docker push registry.example.net/registry/signalr-fun/message-receiver:1.0.0
+```
+
+`build-and-push-to-registry.sh` does the same build-tag-push sequence interactively — it prompts for the
+registry URL and image tag (or reads `REGISTRY`/`TAG` from the environment for non-interactive
+use).
+
+On the deployment host, the `signalr-fun` network is external, so create it once before the
+first `up` (this keeps it alive independent of either Compose project's lifecycle):
+
+```bash
+docker network create signalr-fun
+```
+
+Then deploy with the public SignalR hostname supplied by the shell (or an uncommitted
+`--env-file`):
+
+```bash
+SIGNALR_CLIENT_ENDPOINT=https://signalr-notifications.example.net \
+IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
+docker compose -f docker-compose.registry.yaml pull
+
+SIGNALR_CLIENT_ENDPOINT=https://signalr-notifications.example.net \
+IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
+docker compose -f docker-compose.registry.yaml up -d
+```
+
+If Nginx Proxy Manager runs in another Compose project on the same Docker host, declare
+`signalr-fun` as an `external: true` network there too and attach its container to
+it. Configure proxy hosts for `message-receiver:80` (the web application) and
+`signalr-emulator:8888` (with WebSocket support). The first host handles `/api` internally
+through the frontend Nginx, so it does not need a separate public route to MessageHub.
+
+### Testing pulled images locally
+
+`docker-compose.registry.yaml` publishes no ports on its own, since a real deployment reaches
+it through Nginx Proxy Manager on the shared network instead. To try a pulled image on your
+own machine, layer `docker-compose.registry.local.yml` on top — it publishes `8888` (SignalR
+emulator) and `8080` (frontend) and is local-only; don't use it on the deployment host.
+
+```bash
+docker network create signalr-fun   # skip if it already exists
+
+SIGNALR_CLIENT_ENDPOINT=http://localhost:8888 \
+IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
+docker compose -f docker-compose.registry.yaml pull
+
+SIGNALR_CLIENT_ENDPOINT=http://localhost:8888 \
+IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
+docker compose -f docker-compose.registry.yaml -f docker-compose.registry.local.yml up -d
+```
+
+Open http://localhost:8080. Tear down with the same `-f` flags plus `down` (add `-v` to also
+drop the `cosmos-data` volume it created).
+
 ## What's in the box
 
 | Path | What it is | How it runs |
