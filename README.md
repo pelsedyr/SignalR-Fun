@@ -47,22 +47,20 @@ pulls pre-built images, serves the React bundle with Nginx instead of Vite, and 
 application or emulator ports. It requires the public, HTTPS URL that a browser should use
 for the SignalR hub; Compose refuses to start if the value is absent.
 
-Build and push the three application images from a build machine (replace the prefix and tag
-with your registry location):
+Build and push the three application images from a build machine by running
+`build-and-push-to-registry.sh` from the repo root:
 
 ```bash
-docker build -t registry.example.net/registry/signalr-fun/signalr-emulator:1.0.0 .
-docker build -t registry.example.net/registry/signalr-fun/message-hub:1.0.0 ./MessageHub
-docker build -t registry.example.net/registry/signalr-fun/message-receiver:1.0.0 \
-  -f MessageReceiver/Dockerfile.production ./MessageReceiver
-docker push registry.example.net/registry/signalr-fun/signalr-emulator:1.0.0
-docker push registry.example.net/registry/signalr-fun/message-hub:1.0.0
-docker push registry.example.net/registry/signalr-fun/message-receiver:1.0.0
+./build-and-push-to-registry.sh
 ```
 
-`build-and-push-to-registry.sh` does the same build-tag-push sequence interactively — it prompts for the
-registry URL and image tag (or reads `REGISTRY`/`TAG` from the environment for non-interactive
-use).
+It prompts for the registry URL and image tag, builds `signalr-emulator`, `message-hub`, and
+`message-receiver` (the latter via `MessageReceiver/Dockerfile.production`), and pushes all
+three. For non-interactive use, supply `REGISTRY`/`TAG` in the environment instead:
+
+```bash
+REGISTRY=registry.example.net/registry/signalr-fun TAG=1.0.0 ./build-and-push-to-registry.sh
+```
 
 On the deployment host, the `signalr-fun` network is external, so create it once before the
 first `up` (this keeps it alive independent of either Compose project's lifecycle):
@@ -89,6 +87,16 @@ If Nginx Proxy Manager runs in another Compose project on the same Docker host, 
 it. Configure proxy hosts for `message-receiver:80` (the web application) and
 `signalr-emulator:8888` (with WebSocket support). The first host handles `/api` internally
 through the frontend Nginx, so it does not need a separate public route to MessageHub.
+The second host's public URL is the value to use for `SIGNALR_CLIENT_ENDPOINT` above — the
+browser connects to it directly for the live SignalR connection, bypassing MessageHub and the
+frontend entirely once negotiate hands back that address.
+
+If Nginx Proxy Manager instead runs on a *different* host and can't join the `signalr-fun`
+network, it can't reach the containers by name. Publish their ports to the deployment host
+instead by layering `docker-compose.registry.local.yml` on top of the `up`/`pull` commands
+above (despite the "local" name, this is the supported way to expose them to an external
+reverse proxy), then point Nginx Proxy Manager's proxy hosts at the deployment host's IP on
+port `8080` (frontend) and port `8888` (SignalR emulator) instead of the container names.
 
 ### Testing pulled images locally
 
