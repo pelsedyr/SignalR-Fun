@@ -1,8 +1,8 @@
 using Azure.Messaging.ServiceBus;
 
-var connectionString = GetConfiguration(
-    "SERVICEBUS_CONNECTION",
-    "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;");
+var connectionString = Environment.GetEnvironmentVariable("SERVICEBUS_CONNECTION");
+if (string.IsNullOrWhiteSpace(connectionString))
+    connectionString = ResolveDefaultConnectionString();
 
 var queueName = GetConfiguration("SERVICEBUS_QUEUE", "signalr-fun-notifications");
 var pollSeconds = int.TryParse(Environment.GetEnvironmentVariable("SERVICEBUS_POLL_SECONDS"), out var parsed)
@@ -135,6 +135,77 @@ static string GetConfiguration(string key, string fallback)
 {
     var value = Environment.GetEnvironmentVariable(key);
     return string.IsNullOrWhiteSpace(value) ? fallback : value;
+}
+
+// No SERVICEBUS_CONNECTION override: default to the local emulator, unless .env.registry
+// declares SERVICEBUS_HOST for an externally-exposed one -- in which case ask, rather than
+// silently switching away from localhost.
+static string ResolveDefaultConnectionString()
+{
+    const string localhost =
+        "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
+
+    var host = FindServiceBusHostFromEnvRegistry();
+    if (string.IsNullOrWhiteSpace(host))
+    {
+        Console.WriteLine("Using the local Service Bus emulator (sb://localhost).");
+        Console.WriteLine("Tip: set SERVICEBUS_HOST in .env.registry to connect to an externally-exposed emulator instead.");
+        Console.WriteLine();
+        return localhost;
+    }
+
+    Console.Write($"Found SERVICEBUS_HOST='{host}' in .env.registry. Use it instead of localhost? [Y/n] ");
+    var answer = Console.ReadLine()?.Trim();
+    if (!string.IsNullOrEmpty(answer) && !answer.Equals("y", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine("Using the local Service Bus emulator (sb://localhost).");
+        Console.WriteLine();
+        return localhost;
+    }
+
+    Console.WriteLine($"Using external Service Bus host '{host}'.");
+    Console.WriteLine();
+    return $"Endpoint=sb://{host};SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
+}
+
+// Walks up from the current directory looking for .env.registry, so this works whether the
+// tool is run from the repo root or from cli/ServiceBusPeekTool (the documented workflow).
+static string? FindServiceBusHostFromEnvRegistry()
+{
+    var dir = new DirectoryInfo(Environment.CurrentDirectory);
+    for (var depth = 0; dir is not null && depth < 6; depth++, dir = dir.Parent)
+    {
+        var candidate = Path.Combine(dir.FullName, ".env.registry");
+        if (File.Exists(candidate))
+            return ReadEnvValue(candidate, "SERVICEBUS_HOST");
+    }
+
+    return null;
+}
+
+static string? ReadEnvValue(string path, string key)
+{
+    foreach (var rawLine in File.ReadLines(path))
+    {
+        var line = rawLine.Trim();
+        if (line.Length == 0 || line.StartsWith('#'))
+            continue;
+
+        var separator = line.IndexOf('=');
+        if (separator < 0)
+            continue;
+
+        if (!string.Equals(line[..separator].Trim(), key, StringComparison.Ordinal))
+            continue;
+
+        var value = line[(separator + 1)..].Trim();
+        if (value.Length >= 2 && (value[0] is '"' or '\'') && value[^1] == value[0])
+            value = value[1..^1];
+
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    return null;
 }
 
 static bool IsTransient(ServiceBusException exception)
