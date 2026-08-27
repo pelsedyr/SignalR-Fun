@@ -62,10 +62,14 @@ cp .env.registry.example .env.registry
 # .env.registry
 SIGNALR_CLIENT_ENDPOINT=https://signalr-hub.example.net
 IMAGE_PREFIX=registry.example.net/registry/signalr-fun
+#SERVICEBUS_HOST=servicebus.example.net
 ```
 
 `build-and-push-to-registry.sh` and `pull-latest-registry.sh` both read this file, so they
 always agree on where images live without either one prompting or hardcoding a URL.
+`SERVICEBUS_HOST` is optional — it's read by `cli/ServiceBusPostTool` if a Service Bus emulator
+is ever exposed outside Docker, so the tool can offer that host as an alternative to
+`sb://localhost` (see that tool's README for details).
 
 ### Building and pushing
 

@@ -18,13 +18,29 @@ dotnet run -- user-123 "Hello from the post tool"
 ## Environment Variables
 
 - `SERVICEBUS_CONNECTION`
-Default: `Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;`
+Default: none — see "Connecting to an external emulator" below for what's used instead.
 - `SERVICEBUS_QUEUE`
 Default: `signalr-fun-notifications`
 - `SERVICEBUS_STARTUP_TIMEOUT_SECONDS`
 Default: `120`
 - `SERVICEBUS_RETRY_SECONDS`
 Default: `3`
+
+## Connecting to an external emulator
+
+If `SERVICEBUS_CONNECTION` isn't set, the tool looks for `.env.registry` (checked in the
+current directory and its parents — see the root README's "Configuring where images live")
+for a `SERVICEBUS_HOST` value, e.g. one exposed through a reverse proxy in front of a registry
+deployment. If found, it asks before using it:
+
+```
+Found SERVICEBUS_HOST='servicebus.example.net' in .env.registry. Use it instead of localhost? [Y/n]
+```
+
+Press Enter or `y` to connect to that host instead of `sb://localhost` (same fixed
+emulator credentials, different endpoint); anything else falls back to localhost. If
+`SERVICEBUS_HOST` isn't set at all, the tool goes straight to localhost and prints a one-line
+tip about the option. Setting `SERVICEBUS_CONNECTION` explicitly always skips this prompt.
 
 ## Troubleshooting
 
