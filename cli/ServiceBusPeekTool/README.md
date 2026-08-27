@@ -11,7 +11,7 @@ remaining messages from the queue using `ReceiveAndDelete` mode.
 ## Run
 
 ```bash
-cd tools/dev/ServiceBusPeekTool
+cd ServiceBusPeekTool
 dotnet run
 ```
 
@@ -26,12 +26,12 @@ dotnet run
 
 # Run against the Docker emulator explicitly
 SERVICEBUS_CONNECTION='Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;' \
-SERVICEBUS_QUEUE='d-avdekl-email' \
+SERVICEBUS_QUEUE='signalr-fun-notifications' \
 dotnet run
 
 # Run against Azure Service Bus explicitly
 SERVICEBUS_CONNECTION='Endpoint=sb://<namespace>.servicebus.windows.net/;SharedAccessKeyName=<name>;SharedAccessKey=<key>' \
-SERVICEBUS_QUEUE='d-avdekl-email' \
+SERVICEBUS_QUEUE='signalr-fun-notifications' \
 dotnet run
 ```
 
@@ -40,7 +40,7 @@ dotnet run
 - `SERVICEBUS_CONNECTION`
 Default: `Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;`
 - `SERVICEBUS_QUEUE`
-Default: `d-avdekl-email`
+Default: `signalr-fun-notifications`
 - `SERVICEBUS_POLL_SECONDS`
 Default: `2`
 - `SERVICEBUS_MAX_MESSAGES`
@@ -55,7 +55,7 @@ Default: `3`
 ## Troubleshooting
 
 - `MessagingEntityNotFound`
-The queue does not exist in the endpoint you connected to. For the Docker emulator, recreate the emulator after changing `servicebus-emulator.config.json`, then verify the queue name is `d-avdekl-email`.
+The queue does not exist in the endpoint you connected to. For the Docker emulator, recreate the emulator after changing `servicebus-emulator.config.json`, then verify the queue name is `signalr-fun-notifications`.
 - `ServiceCommunicationProblem` or `tcp3 is closed`
 The emulator is still starting or the AMQP endpoint is not ready yet. Wait until `docker logs servicebus-emulator` shows `Emulator Service is Successfully Up!`.
 - `Unauthorized`
@@ -67,10 +67,10 @@ The drain uses `ReceiveAndDelete` with a 2-second wait per batch. If the emulato
 
 ## Startup Order
 
-1. Start the emulator stack:
+1. Start the emulator stack, from the repo root:
 
 ```bash
-docker compose -f src/avdekl-functions/Avdekl.Function.Email/docker-compose.dev.yaml up -d
+docker compose up -d
 ```
 
 2. Wait for the emulator to finish booting:

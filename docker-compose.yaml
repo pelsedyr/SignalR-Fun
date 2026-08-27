@@ -11,7 +11,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   message-hub:
     build:
@@ -27,7 +27,7 @@ services:
       ServiceBusConnection: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
       # Double underscores, not colons: .NET config maps __ to : when reading env vars,
       # which is what the %...% binding expressions resolve against.
-      Email__ServiceBus__DefaultQueue: "d-avdekl-notifications"
+      Email__ServiceBus__DefaultQueue: "signalr-fun-notifications"
       # Endpoint is how *this container* reaches the emulator; ClientEndpoint is what
       # negotiate hands the *browser*, which can't resolve compose service names.
       AzureSignalRConnectionString: "Endpoint=http://signalr-emulator:8888;AccessKey=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH;Version=1.0;ClientEndpoint=http://localhost:8888;"
@@ -66,7 +66,7 @@ services:
             - .vscode/
             - local.settings.json
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   message-receiver:
     build:
@@ -103,7 +103,7 @@ services:
         - action: rebuild
           path: ./MessageReceiver/package-lock.json
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
@@ -113,7 +113,7 @@ services:
       - "10001:10001"
       - "10002:10002"
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   cosmosdb-emulator:
     image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260810
@@ -135,7 +135,7 @@ services:
       retries: 30
       start_period: 10s
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   servicebus-emulator:
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
@@ -154,7 +154,7 @@ services:
     depends_on:
       - mssql
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   # Backing store for servicebus-emulator's own config/state, not a service any
   # app code talks to directly. No volume: data is disposable and gets rebuilt
@@ -169,10 +169,10 @@ services:
       MSSQL_SA_PASSWORD: "1StrongPwd!!"
       MSSQL_PID: "Developer"
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
 networks:
-  d-avdekl-notifications:
+  signalr-fun:
 
 volumes:
   # Keeps notifications across `docker compose down`. Tied to the Postgres major version

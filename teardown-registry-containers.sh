@@ -10,21 +10,15 @@
 # currently deployed — so leftovers from earlier deploys with a different IMAGE_TAG
 # get cleaned up too). The registry host is read straight from the running
 # containers, not from IMAGE_PREFIX, so this works even if that var isn't set in
-# the current shell. Also removes the signalr-fun network and unsets the env vars
-# used above.
+# the current shell. The network is owned by this Compose project, so "down" below
+# already removes it; also unsets the env vars used above.
 #
 # Run `source teardown-registry.sh` (or `. teardown-registry.sh`) instead of
 # `./teardown-registry.sh` if you want the env var unset to reach your current
 # shell — a script executed normally only unsets them in its own subprocess.
-#
-# Note: signalr-fun is declared `external` in docker-compose.registry.yaml because
-# Nginx Proxy Manager may also be attached to it. If NPM (or anything else) is still
-# on the network, `docker network rm` below will fail — that's expected, disconnect
-# it first if you really want the network gone too.
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 compose_file="$script_dir/docker-compose.registry.yaml"
-network="signalr-fun"
 
 # Only the services whose image comes from IMAGE_PREFIX/IMAGE_TAG — the other services
 # (azurite, cosmosdb-emulator, servicebus-emulator, mssql) are fixed Microsoft images that
@@ -61,17 +55,6 @@ if [ -n "$registry" ]; then
   fi
 else
   echo "Could not determine the registry (no containers found for the stack) — skipping image removal."
-fi
-
-echo "Removing network $network..."
-if docker network inspect "$network" >/dev/null 2>&1; then
-  if docker network rm "$network"; then
-    echo "Network $network removed."
-  else
-    echo "Warning: could not remove network $network (containers from another project may still be attached)." >&2
-  fi
-else
-  echo "Network $network does not exist."
 fi
 
 unset SIGNALR_CLIENT_ENDPOINT IMAGE_PREFIX IMAGE_TAG

@@ -1,12 +1,3 @@
-# Ports to remember
-> [!important]
-
-| Service | Port |
-| - | - |
-| SignalR Emulator | 8888 |
-| Receiver SPA | 8080 |
-
-
 # SignalR-Fun
 
 A local spike for push notifications: a message dropped on a Service Bus queue is picked
@@ -51,10 +42,11 @@ The notification should appear in the browser within a second.
 
 ## Registry deployment
 
-`docker-compose.registry.yaml` is intentionally separate from the development stack. It
-pulls pre-built images, serves the React bundle with Nginx instead of Vite, and exposes no
-application or emulator ports. It requires the public, HTTPS URL that a browser should use
-for the SignalR hub; Compose refuses to start if the value is absent.
+`docker-compose.registry.yaml` is a demo stack: it pulls pre-built images and serves the React
+bundle with Nginx instead of Vite, but publishes the same host ports as `docker-compose.yaml`
+(see the port list below) so it's otherwise a drop-in swap for trying a built image without the
+source-watching dev containers running. It requires the public URL a browser should use for the
+SignalR hub; Compose refuses to start if the value is absent.
 
 Build and push the three application images from a build machine by running
 `build-and-push-to-registry.sh` from the repo root:
@@ -71,63 +63,29 @@ three. For non-interactive use, supply `REGISTRY`/`TAG` in the environment inste
 REGISTRY=registry.example.net/registry/signalr-fun TAG=1.0.0 ./build-and-push-to-registry.sh
 ```
 
-On the deployment host, the `signalr-fun` network is external, so create it once before the
-first `up` (this keeps it alive independent of either Compose project's lifecycle):
+Deploy with the SignalR hostname supplied by the shell (or an uncommitted `--env-file`) — use
+the deployment host's address since ports are published directly:
 
 ```bash
-docker network create signalr-fun
-```
-
-Then deploy with the public SignalR hostname supplied by the shell (or an uncommitted
-`--env-file`):
-
-```bash
-SIGNALR_CLIENT_ENDPOINT=https://signalr-notifications.example.net \
+SIGNALR_CLIENT_ENDPOINT=http://<host>:8888 \
 IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
 docker compose -f docker-compose.registry.yaml pull
 
-SIGNALR_CLIENT_ENDPOINT=https://signalr-notifications.example.net \
+SIGNALR_CLIENT_ENDPOINT=http://<host>:8888 \
 IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
 docker compose -f docker-compose.registry.yaml up -d
 ```
 
-If Nginx Proxy Manager runs in another Compose project on the same Docker host, declare
-`signalr-fun` as an `external: true` network there too and attach its container to
-it. Configure proxy hosts for `message-receiver:80` (the web application) and
-`signalr-emulator:8888` (with WebSocket support). The first host handles `/api` internally
-through the frontend Nginx, so it does not need a separate public route to MessageHub.
-The second host's public URL is the value to use for `SIGNALR_CLIENT_ENDPOINT` above — the
-browser connects to it directly for the live SignalR connection, bypassing MessageHub and the
-frontend entirely once negotiate hands back that address.
+Open `http://<host>:5173`. Tear down with `docker compose -f docker-compose.registry.yaml down`
+(add `-v` to also drop the `cosmos-data` volume), or run `./teardown-registry-containers.sh`.
 
-If Nginx Proxy Manager instead runs on a *different* host and can't join the `signalr-fun`
-network, it can't reach the containers by name. Publish their ports to the deployment host
-instead by layering `docker-compose.registry.local.yml` on top of the `up`/`pull` commands
-above (despite the "local" name, this is the supported way to expose them to an external
-reverse proxy), then point Nginx Proxy Manager's proxy hosts at the deployment host's IP on
-port `8080` (frontend) and port `8888` (SignalR emulator) instead of the container names.
-
-### Testing pulled images locally
-
-`docker-compose.registry.yaml` publishes no ports on its own, since a real deployment reaches
-it through Nginx Proxy Manager on the shared network instead. To try a pulled image on your
-own machine, layer `docker-compose.registry.local.yml` on top — it publishes `8888` (SignalR
-emulator) and `8080` (frontend) and is local-only; don't use it on the deployment host.
-
-```bash
-docker network create signalr-fun   # skip if it already exists
-
-SIGNALR_CLIENT_ENDPOINT=http://localhost:8888 \
-IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
-docker compose -f docker-compose.registry.yaml pull
-
-SIGNALR_CLIENT_ENDPOINT=http://localhost:8888 \
-IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
-docker compose -f docker-compose.registry.yaml -f docker-compose.registry.local.yml up -d
-```
-
-Open http://localhost:8080. Tear down with the same `-f` flags plus `down` (add `-v` to also
-drop the `cosmos-data` volume it created).
+If Nginx Proxy Manager ever needs to run on this *same* Docker host and reach containers by
+name instead of by published port, give the `signalr-fun` network in
+`docker-compose.registry.yaml` `external: true`, create it once with
+`docker network create signalr-fun`, and attach NPM's own Compose project to that same
+external network. Configure proxy hosts for `message-receiver:80` (the web application) and
+`signalr-emulator:8888` (with WebSocket support) — the second host's public URL becomes
+`SIGNALR_CLIENT_ENDPOINT` above instead of `http://<host>:8888`.
 
 ## What's in the box
 
@@ -138,12 +96,13 @@ drop the `cosmos-data` volume it created).
 | `cli/ServiceBusPostTool/` | Posts `NotificationDto` messages onto the queue | host, `dotnet run` |
 | `cli/ServiceBusPeekTool/` | Non-destructive queue watcher; drains on exit | host, `dotnet run` |
 | `Dockerfile` | Builds the Azure SignalR emulator image | container, port 8888 |
-| `servicebus-emulator.config.json` | Declares the `d-avdekl-notifications` queue | mounted into the emulator |
+| `servicebus-emulator.config.json` | Declares the `signalr-fun-notifications` queue | mounted into the emulator |
 | `signalr-emulator.settings.json` | Upstream webhook template | mounted into the emulator |
 
 Ports: `5173` frontend · `7071` function · `8888` SignalR emulator · `8081` Cosmos gateway ·
 `1234` Cosmos data explorer · `5672`/`5300` Service Bus emulator · `10000-10002` Azurite ·
-`1433` MSSQL (backing store for the Service Bus emulator).
+`1433` MSSQL (backing store for the Service Bus emulator). Same list for both
+`docker-compose.yaml` and `docker-compose.registry.yaml`.
 
 ## Prerequisites
 
@@ -410,168 +369,14 @@ That volume holds a Postgres cluster tied to the emulator image's major version,
 pinned image tag may require a `down -v`.
 
 Both CLI tools read `SERVICEBUS_CONNECTION` and `SERVICEBUS_QUEUE` from the environment and
-default to the emulator and `d-avdekl-notifications`.
+default to the emulator and `signalr-fun-notifications`.
 
-## Recent changes
-
-### MessageHub reorganized to the Avdekl function-app structure
-
-The project had grown to twelve `.cs` files flat in the root, all in one namespace. It now
-follows the layout used by the sibling function apps in `ac-avdekl`:
-
-```
-Dto/  Models/  Repositories/  Functions/  Extensions/(Logger/)  Exceptions/  Static/
-```
-
-`Avdekl.Function.Email` was used as the template rather than `Avdekl.Function.Brreg`: Brreg is
-HTTP-only with no persistence, while Email is the house pattern for exactly this shape — a
-Service Bus queue trigger plus Cosmos repositories.
-
-- **`INotificationStore` / `CosmosNotificationStore` → `Repositories/INotificationRepository` /
-  `NotificationRepository`**, with the `(IConfiguration, CosmosClient)` constructor Email uses.
-- **Logging is now source-generated `[LoggerMessage]` extensions** under `Extensions/Logger/`.
-  Message text is unchanged, so existing log greps still work.
-- **Config keys are unchanged** — `CosmosConnection`, `Cosmos:DatabaseId`, `Cosmos:ContainerId`
-  keep their names and just move into `Static/Strings.ConfigurationKeys`. Renaming them to
-  Email's `Notifications:Cosmos:*` form would have rippled into `docker-compose.yaml` and
-  `local.settings.json` for no gain in a spike.
-- **`CosmosBootstrapper` moved from an `IHostedService` to a static `EnsureProvisionedAsync`**
-  called from `Program.cs`, mirroring Email's `EmailTemplateSeeder`.
-
-**One rename is visible at runtime:** the Service Bus trigger is now `ServiceBusQueueTrigger`,
-so logs read `Executed 'Functions.ServiceBusQueueTrigger'`. The three HTTP function names and
-every route are unchanged.
-
-**One thing that did not port cleanly.** Email's `CreateJsonResponse` extension writes the body
-with the synchronous `response.WriteString(...)`, which is fine under its `HostBuilder` host.
-This app uses `ConfigureFunctionsWebApplication()` (ASP.NET Core-integrated), where synchronous
-IO throws `Synchronous operations are disallowed`. Every HTTP endpoint returned 500 until the
-helper was made async — the same class of difference the comment in `NegotiateController`
-already described. Worth knowing before copying other helpers across.
-
-Verified as behaviour-preserving by capturing every endpoint's response before and after and
-diffing: identical, including status codes and error bodies. The nudge payload, the
-`CreateItemAsync`-not-upsert idempotency and `readUtc` preservation were all re-checked.
-
-### Notifications are persisted in Cosmos DB; SignalR now only nudges
-
-Previously the trigger pushed the whole notification over SignalR and nothing was stored, so
-anything sent while the recipient was disconnected was lost, and a refresh emptied the list.
-Cosmos is now the durable inbox.
-
-- **`ServiceBusQueueTrigger`** writes a `NotificationDocument` (database `log`, container
-  `notifications`, partition key `/receiverId`) and then returns a nudge — `{ id, createdUtc }`,
-  no content.
-- **New HTTP endpoints:** `GET /api/notifications?userId=&unread=` and
-  `POST /api/notifications/{id}/read?userId=`.
-- **The frontend renders from the API**, not from the push. It backfills on connect, debounces
-  nudges 300 ms before re-fetching, and re-fetches on reconnect.
-
-**Why a nudge and not the payload.** Pushing the whole notification means two code paths produce
-notification objects — the SignalR payload and the REST response — and they must stay identical
-forever. When they drift, a notification renders differently depending on whether the user was
-online when it arrived. Since the REST path has to exist anyway for backfill, the nudge *removes*
-an implementation rather than adding one. It also makes duplicate and out-of-order pushes
-harmless: both just trigger a redundant fetch of the same authoritative list.
-
-**Two bugs fixed on the way in.**
-
-The trigger used to call `CompleteMessageAsync` *before* returning its output binding. The host
-processes output bindings after the function body returns, so the message was settled while the
-SignalR push could still fail — with nothing left to redeliver and no dead-letter record. The fix
-was deletion: dropping the manual settlement and the `ServiceBusMessageActions` parameter lets
-auto-completion settle only after the body *and* every output binding succeed. The runtime now
-logs `AutoCompleteMessages … overriden to 'True'`, which is the correct behaviour here and also
-resolves a latent conflict with the default `host.json`.
-
-The Cosmos write uses `CreateItemAsync` and treats a 409 as success, **not** `UpsertItemAsync`.
-Service Bus is at-least-once, so the write runs again on redelivery — and an upsert would
-overwrite `readUtc` back to null, silently un-reading a notification the user had already read.
-Verified by re-sending a processed `MessageId`: one document, original content, `readUtc` intact.
-
-### MessageReceiver is now containerized too
-
-The frontend was the last host-only piece, so the quick start needed two commands and a
-`npm install`. It's now a `message-receiver` service and `docker compose up -d --build`
-brings up the whole thing.
-
-- **`MessageReceiver/Dockerfile`** — `node:24-slim` running the Vite dev server. Debian
-  rather than Alpine on purpose: `package-lock.json` pins glibc-variant native bindings
-  (`@rollup/rollup-linux-x64-gnu`, oxlint's `-gnu` bindings), and matching the libc avoids
-  a whole class of `npm ci` platform failures for no meaningful size win.
-- **`--host 0.0.0.0` passed on the command line**, not set in `vite.config.js`. Vite binds
-  loopback by default, which is unreachable from outside the container — but the host
-  workflow shouldn't start exposing itself to the LAN as a side effect.
-- **`API_PROXY_TARGET`** in `vite.config.js` (see Configuration above) — the only source
-  change this needed.
-- **Port `5173:5173`, mapped 1:1 deliberately.** Vite's HMR client connects back to the
-  same host:port the page was served from, so remapping would break hot reload.
-
-**This is shaped differently from MessageHub, and that's the point.** MessageHub uses a
-production-style image and rebuilds on every save because in-container `dotnet watch`
-crashed the host (below). Vite has none of that problem — it has real HMR — so the
-frontend uses `action: sync` instead of `action: rebuild`, and only `package.json` /
-`package-lock.json` changes produce a new image. Copying MessageHub's approach here would
-have turned a sub-second reload into a ~20 s rebuild, which would have been a downgrade
-from running it on the host.
-
-Verified end to end: editing `App.jsx` under `docker compose watch` logs
-`Syncing service "message-receiver"` and `[vite] (client) hmr update /src/App.jsx` with no
-rebuild, while touching `package.json` rebuilds `message-receiver` alone; a Service Bus
-message still lands in a SignalR client that negotiated through the container's `/api`
-proxy.
-
-### MessageHub is now containerized
-
-Previously MessageHub was the only component *not* in Compose — it ran on the host via
-`func start` while everything else was a container, so a fresh clone couldn't bring the
-stack up with one command. It's now a `message-hub` service.
-
-- **`MessageHub/Dockerfile`** — multi-stage: `dotnet/sdk:10.0` builds and publishes, then
-  the artifacts are copied into `azure-functions/dotnet-isolated:4-dotnet-isolated10.0`,
-  the same host image Azure runs. Final image **1.29 GB**. BuildKit cache mounts keep the
-  generated `WorkerExtensions` sub-project (which targets `net8.0`) from re-downloading
-  the 8.0 reference pack on every rebuild.
-- **`develop.watch` with `action: rebuild`** for the inner loop, rather than a
-  bind-mounted source tree.
-- **`MessageHub/docker-entrypoint.sh`** — waits for the Service Bus emulator's AMQP port
-  before starting the Functions host, then `exec`s the base image's startup script. The
-  wait is bounded at 60 s and never fatal. Overridable via `SERVICEBUS_WAIT_HOST` /
-  `SERVICEBUS_WAIT_PORT`.
-- **Port `7071:80`** so the SignalR upstream, the Vite proxy and both editor task files
-  keep working with no edits, and host mode remains a `docker compose stop` away.
-
-Two decisions worth recording, both driven by things that were measured rather than
-assumed:
-
-**No `dotnet watch` inside the container.** An earlier attempt bind-mounted the source into
-an SDK image with Core Tools and ran `dotnet watch` alongside `func start`. Every rebuild
-re-registered the functions into the still-running host:
-
-```
-System.InvalidOperationException: Unable to load Function 'MessageTrigger'.
-A function with the id '1853734259' name already exists.
-```
-
-That image was 4.64 GB and the container ended up killed. Rebuilding the image and
-recreating the container is slower per iteration but always starts from a clean host.
-
-**The startup wait replaced a restart policy that was doing nothing.** The Service Bus
-emulator waits on MSSQL and needs ~10 s before it accepts AMQP. The Functions host doesn't
-*exit* when a listener can't connect — it retries internally — so `restart:` never fired.
-Cold starts logged **1536** `Connection refused` stack traces before settling. With the
-entrypoint wait that is **0**, and `restart:` is now `on-failure`, honestly scoped as a
-safety net for a genuine crash. The emulator image has no shell, so a Compose healthcheck
-on it isn't possible; the wait has to live on the consumer side.
-
-### Known rough edges
+## Known rough edges
 
 - The SignalR emulator's upstream webhook is effectively inert: there's no `SignalRTrigger`
   in this app, and the output binding talks to the emulator directly over REST. It may
   return 401 in container mode (Core Tools disables key auth, the real host doesn't). It
   doesn't matter today, but it would if a `SignalRTrigger` is ever added.
-- `cli/*/README.md` reference a `docker-compose.dev.yaml` and a `d-avdekl-email` queue that
-  don't exist.
 - `MessageHub/Properties/launchSettings.json` says port 7232 while everything else assumes
   7071.
 - `NotificationDto` is duplicated between `MessageHub/` and `cli/ServiceBusPostTool/`.

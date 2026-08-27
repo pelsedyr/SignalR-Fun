@@ -1,33 +1,39 @@
-# Deployment-only stack. It pulls pre-built images; it does not build source or run Vite.
+# Demo deployment stack. It pulls pre-built images and serves the React bundle with Nginx
+# instead of Vite, but otherwise publishes the same host ports as docker-compose.yaml, so it's
+# a drop-in swap for trying a built image without the source-watching dev containers running.
 #
 # Required:
 #   SIGNALR_CLIENT_ENDPOINT=https://signalr-notifications.example.net
 # Optional:
 #   IMAGE_PREFIX=registry.example.net/registry/signalr-fun  IMAGE_TAG=1.0.0
 #
-# The `signalr-fun` network is external (see below) — create it once with:
-#   docker network create signalr-fun
-# If Nginx Proxy Manager is a separate Compose project on this Docker host, declare that
-# same network as external there too and connect its container to it. It can then proxy
-# `message-receiver:80` and `signalr-emulator:8888` without any published application ports.
+# The network is owned by this project (like docker-compose.yaml's), so no manual
+# `docker network create` step is needed and `down` cleans it up. If Nginx Proxy Manager ever
+# needs to run on this same Docker host and reach containers by name instead of by published
+# port, make the `signalr-fun` network below `external: true`, create it once with
+# `docker network create signalr-fun`, and attach NPM's own Compose project to that same name.
 name: signalr-fun-registry
 
 services:
   signalr-emulator:
     image: "${IMAGE_PREFIX:-signalr-fun}/signalr-emulator:${IMAGE_TAG:-latest}"
     restart: unless-stopped
+    ports:
+      - "8888:8888"
     volumes:
       - ./signalr-emulator.settings.registry.json:/app/settings.json:ro
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   message-hub:
     image: "${IMAGE_PREFIX:-signalr-fun}/message-hub:${IMAGE_TAG:-latest}"
     restart: unless-stopped
+    ports:
+      - "7071:80"
     environment:
       AzureWebJobsStorage: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
       ServiceBusConnection: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
-      Email__ServiceBus__DefaultQueue: "d-avdekl-notifications"
+      Email__ServiceBus__DefaultQueue: "signalr-fun-notifications"
       # Endpoint is internal Docker DNS. ClientEndpoint is deliberately required, so the
       # negotiate response always contains an address the browser can resolve.
       AzureSignalRConnectionString: "Endpoint=http://signalr-emulator:8888;AccessKey=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH;Version=1.0;ClientEndpoint=${SIGNALR_CLIENT_ENDPOINT:?Set SIGNALR_CLIENT_ENDPOINT to the public HTTPS SignalR URL};"
@@ -45,25 +51,37 @@ services:
       signalr-emulator:
         condition: service_started
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   message-receiver:
     image: "${IMAGE_PREFIX:-signalr-fun}/message-receiver:${IMAGE_TAG:-latest}"
     restart: unless-stopped
+    # Host port matches docker-compose.yaml's Vite port for consistency, even though this
+    # container serves the built bundle over Nginx on 80 instead (no HMR to keep aligned).
+    ports:
+      - "5173:80"
     depends_on:
       - message-hub
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
     restart: unless-stopped
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   cosmosdb-emulator:
     image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260810
     restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "8080:8080"
+      - "1234:1234"
     volumes:
       - cosmos-data:/data
     healthcheck:
@@ -73,11 +91,14 @@ services:
       retries: 30
       start_period: 10s
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   servicebus-emulator:
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
     restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "5300:5300"
     volumes:
       - ./servicebus-emulator.config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
     environment:
@@ -88,26 +109,22 @@ services:
     depends_on:
       - mssql
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
   mssql:
     image: mcr.microsoft.com/mssql/server:2025-CU8-ubuntu-24.04
     restart: unless-stopped
+    ports:
+      - "1433:1433"
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "1StrongPwd!!"
       MSSQL_PID: "Developer"
     networks:
-      - d-avdekl-notifications
+      - signalr-fun
 
 networks:
-  d-avdekl-notifications:
-    # External: created once with `docker network create signalr-fun`, so ownership
-    # isn't tied to this compose project. Nginx Proxy Manager's own compose project
-    # attaches to the same network the same way. If this network were owned by this
-    # project instead, `docker compose down` here would delete it out from under NPM.
-    name: signalr-fun
-    external: true
+  signalr-fun:
 
 volumes:
   cosmos-data:

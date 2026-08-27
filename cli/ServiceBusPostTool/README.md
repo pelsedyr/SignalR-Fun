@@ -20,7 +20,7 @@ dotnet run -- user-123 "Hello from the post tool"
 - `SERVICEBUS_CONNECTION`
 Default: `Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;`
 - `SERVICEBUS_QUEUE`
-Default: `d-avdekl-notifications`
+Default: `signalr-fun-notifications`
 - `SERVICEBUS_STARTUP_TIMEOUT_SECONDS`
 Default: `120`
 - `SERVICEBUS_RETRY_SECONDS`
@@ -34,10 +34,10 @@ emulator is starting up.
 
 ## Startup Order
 
-1. Start the emulator stack:
+1. Start the emulator stack, from the repo root:
 
 ```bash
-docker compose -f docker-compose.dev.yaml up -d
+docker compose up -d
 ```
 
 2. Wait for the emulator to finish booting:

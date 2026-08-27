@@ -5,7 +5,7 @@ var connectionString = GetConfiguration(
     "SERVICEBUS_CONNECTION",
     "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;");
 
-var queueName = GetConfiguration("SERVICEBUS_QUEUE", "d-avdekl-notifications");
+var queueName = GetConfiguration("SERVICEBUS_QUEUE", "signalr-fun-notifications");
 var startupTimeoutSeconds = int.TryParse(Environment.GetEnvironmentVariable("SERVICEBUS_STARTUP_TIMEOUT_SECONDS"), out var parsed)
     ? Math.Max(5, parsed)
     : 120;

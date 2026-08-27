@@ -2,6 +2,9 @@
 # Builds the three deployable images (signalr-emulator, message-hub, message-receiver)
 # and pushes them to a registry, tagged for docker-compose.registry.yaml's IMAGE_PREFIX
 # / IMAGE_TAG variables. Run from the repo root.
+#
+# Each image is also tagged and pushed as ":latest" alongside its version tag, so
+# IMAGE_TAG=latest always resolves to whatever was pushed most recently.
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -29,6 +32,7 @@ else
 fi
 
 images="signalr-emulator message-hub message-receiver"
+also_latest=$([ "$tag" != "latest" ] && echo true || echo false)
 
 echo
 echo "Building $images as $registry/<image>:$tag"
@@ -40,9 +44,19 @@ docker build -t "$registry/message-receiver:$tag" \
   -f MessageReceiver/Dockerfile.production ./MessageReceiver
 
 for image in $images; do
+  if [ "$also_latest" = true ]; then
+    docker tag "$registry/$image:$tag" "$registry/$image:latest"
+  fi
   docker push "$registry/$image:$tag"
+  if [ "$also_latest" = true ]; then
+    docker push "$registry/$image:latest"
+  fi
 done
 
 echo
-echo "Pushed. Deploy with:"
+if [ "$also_latest" = true ]; then
+  echo "Pushed $tag and latest. Deploy with:"
+else
+  echo "Pushed. Deploy with:"
+fi
 echo "  IMAGE_PREFIX=$registry IMAGE_TAG=$tag docker compose -f docker-compose.registry.yaml up -d"
