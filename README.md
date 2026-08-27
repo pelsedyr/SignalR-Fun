@@ -1,3 +1,12 @@
+# Ports to remember
+> [!important]
+
+| Service | Port |
+| - | - |
+| SignalR Emulator | 8888 |
+| Receiver SPA | 8080 |
+
+
 # SignalR-Fun
 
 A local spike for push notifications: a message dropped on a Service Bus queue is picked

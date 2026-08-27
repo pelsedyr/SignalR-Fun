@@ -1,7 +1,10 @@
-# Local-only override for testing pulled registry images in a browser. The base file
+# Override that publishes host ports for the registry stack. The base file
 # (docker-compose.registry.yaml) publishes no ports on purpose, since it expects Nginx
-# Proxy Manager on the same network in a real deployment. This adds host ports back for
-# local testing only -- don't use it on the actual deployment host.
+# Proxy Manager to join the `signalr-fun` network directly and proxy by container name.
+# Layer this on top in two cases: testing pulled images in a local browser, or a real
+# deployment where Nginx Proxy Manager runs on a different host and can't join that
+# network -- point it at the deployment host's IP on 8080/8888 instead. See README.md
+# for both workflows.
 services:
   signalr-emulator:
     ports:
