@@ -48,23 +48,55 @@ bundle with Nginx instead of Vite, but publishes the same host ports as `docker-
 source-watching dev containers running. It requires the public URL a browser should use for the
 SignalR hub; Compose refuses to start if the value is absent.
 
-Build and push the three application images from a build machine by running
-`build-and-push-to-registry.sh` from the repo root:
+### Configuring where images live
+
+The registry host, namespace, and SignalR hostname are environment-specific, so they live in
+`.env.registry` — gitignored, never committed — instead of the compose file. Copy the template
+and fill in your real values:
+
+```bash
+cp .env.registry.example .env.registry
+```
+
+```bash
+# .env.registry
+SIGNALR_CLIENT_ENDPOINT=https://signalr-hub.example.net
+IMAGE_PREFIX=registry.example.net/registry/signalr-fun
+```
+
+`build-and-push-to-registry.sh` and `pull-latest-registry.sh` both read this file, so they
+always agree on where images live without either one prompting or hardcoding a URL.
+
+### Building and pushing
+
+From a build machine, run `build-and-push-to-registry.sh` from the repo root:
 
 ```bash
 ./build-and-push-to-registry.sh
 ```
 
-It prompts for the registry URL and image tag, builds `signalr-emulator`, `message-hub`, and
-`message-receiver` (the latter via `MessageReceiver/Dockerfile.production`), and pushes all
-three. For non-interactive use, supply `REGISTRY`/`TAG` in the environment instead:
+It reads the registry from `.env.registry`'s `IMAGE_PREFIX` (or `$REGISTRY`, if set, which takes
+priority), prompts for an image tag (or reads `$TAG`), builds `signalr-emulator`, `message-hub`,
+and `message-receiver` (the latter via `MessageReceiver/Dockerfile.production`), and pushes all
+three — tagged with the version *and* `latest`, so `IMAGE_TAG=latest` always resolves to whatever
+was pushed most recently. For fully non-interactive use:
 
 ```bash
-REGISTRY=registry.example.net/registry/signalr-fun TAG=1.0.0 ./build-and-push-to-registry.sh
+TAG=1.0.0 ./build-and-push-to-registry.sh
 ```
 
-Deploy with the SignalR hostname supplied by the shell (or an uncommitted `--env-file`) — use
-the deployment host's address since ports are published directly:
+### Deploying
+
+To always deploy the newest `latest` build, run `pull-latest-registry.sh` from the repo root —
+it re-pulls even if a `latest`-tagged image already exists locally, then brings the stack up:
+
+```bash
+./pull-latest-registry.sh
+```
+
+To deploy a specific version instead, pass `IMAGE_TAG` explicitly. Ports are published directly
+(see the port list below), so use the deployment host's own address for
+`SIGNALR_CLIENT_ENDPOINT`:
 
 ```bash
 SIGNALR_CLIENT_ENDPOINT=http://<host>:8888 \
