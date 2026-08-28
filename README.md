@@ -61,15 +61,20 @@ cp .env.registry.example .env.registry
 ```bash
 # .env.registry
 SIGNALR_CLIENT_ENDPOINT=https://signalr-hub.example.net
+# Include a non-default port here if the registry isn't on 443/80, e.g. host:47829/ns.
 IMAGE_PREFIX=registry.example.net/registry/signalr-fun
 #SERVICEBUS_HOST=servicebus.example.net
+#REGISTRY_USERNAME=
+#REGISTRY_PASSWORD=
 ```
 
 `build-and-push-to-registry.sh` and `pull-latest-registry.sh` both read this file, so they
 always agree on where images live without either one prompting or hardcoding a URL.
-`SERVICEBUS_HOST` is optional — it's read by `cli/ServiceBusPostTool` if a Service Bus emulator
-is ever exposed outside Docker, so the tool can offer that host as an alternative to
-`sb://localhost` (see that tool's README for details).
+`SERVICEBUS_HOST` is optional — it's read by `cli/ServiceBusPostTool` and `cli/ServiceBusPeekTool`
+if a Service Bus emulator is ever exposed outside Docker, so those tools can offer that host as
+an alternative to `sb://localhost` (see their READMEs for details). `REGISTRY_USERNAME` /
+`REGISTRY_PASSWORD` are optional too — set both if the registry requires authentication (e.g.
+`REGISTRY_AUTH=htpasswd`), and both scripts will `docker login` with them before pushing/pulling.
 
 ### Building and pushing
 

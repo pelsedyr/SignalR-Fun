@@ -9,6 +9,8 @@
 # The registry URL comes from .env.registry's IMAGE_PREFIX (gitignored -- copy
 # .env.registry.example to .env.registry and fill in real values), the same file
 # pull-latest-registry.sh reads, so the two scripts always agree on where images live.
+# If .env.registry also sets REGISTRY_USERNAME/REGISTRY_PASSWORD, this logs in before
+# pushing (for a registry with auth enabled, e.g. REGISTRY_AUTH=htpasswd).
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -16,26 +18,32 @@ cd "$script_dir"
 
 env_file=".env.registry"
 
-if [ -n "${REGISTRY:-}" ]; then
-  registry=$REGISTRY
-elif [ -f "$env_file" ]; then
+if [ -f "$env_file" ]; then
   set -a
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
-  registry=${IMAGE_PREFIX:-}
+fi
+
+if [ -n "${REGISTRY:-}" ]; then
+  registry=$REGISTRY
 else
-  echo "Missing $env_file. Copy .env.registry.example to $env_file and fill in your values," >&2
-  echo "or set REGISTRY explicitly." >&2
+  registry=${IMAGE_PREFIX:-}
+fi
+
+if [ -z "$registry" ]; then
+  echo "No registry URL given (checked \$REGISTRY and IMAGE_PREFIX in $env_file), aborting." >&2
+  echo "Copy .env.registry.example to $env_file and fill in your values, or set REGISTRY explicitly." >&2
   exit 1
 fi
 # Strip a scheme and any trailing slash, so both "https://host/ns/" and "host/ns" work.
 registry=${registry#*://}
 registry=${registry%/}
 
-if [ -z "$registry" ]; then
-  echo "No registry URL given (checked \$REGISTRY and IMAGE_PREFIX in $env_file), aborting." >&2
-  exit 1
+if [ -n "${REGISTRY_USERNAME:-}" ] && [ -n "${REGISTRY_PASSWORD:-}" ]; then
+  registry_host=${registry%%/*}
+  echo "Logging in to $registry_host..."
+  echo "$REGISTRY_PASSWORD" | docker login "$registry_host" -u "$REGISTRY_USERNAME" --password-stdin
 fi
 
 if [ -n "${TAG:-}" ]; then
