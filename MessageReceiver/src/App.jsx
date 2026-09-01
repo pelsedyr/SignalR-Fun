@@ -13,9 +13,11 @@ function App() {
   const [userId, setUserId] = useState('user-123');
   const [status, setStatus] = useState('disconnected');
   const [notifications, setNotifications] = useState([]);
+  const [newNotificationIds, setNewNotificationIds] = useState(() => new Set());
   const [loadError, setLoadError] = useState(null);
   const connectionRef = useRef(null);
   const refreshTimerRef = useRef(null);
+  const notificationIdsRef = useRef(new Set());
   // Read through a ref inside the SignalR callback: the handler is registered once per
   // connection and would otherwise close over the userId from that render.
   const userIdRef = useRef(userId);
@@ -28,9 +30,22 @@ function App() {
 
   // The single path that produces notifications. Every nudge, the initial backfill and every
   // mark-as-read all funnel through here, so the rendered list always comes from Cosmos.
-  const refresh = useCallback(async (id) => {
+  const refresh = useCallback(async (id, { animateNew = false } = {}) => {
     try {
-      setNotifications(await fetchNotifications(id ?? userIdRef.current));
+      const fetchedNotifications = await fetchNotifications(id ?? userIdRef.current);
+      const fetchedIds = new Set(fetchedNotifications.map((notification) => notification.id));
+
+      // SignalR only tells us to refresh. Compare its API response to the rendered list so
+      // only cards that arrived because of that nudge receive the entrance animation.
+      if (animateNew) {
+        setNewNotificationIds(new Set(
+          fetchedNotifications
+            .filter((notification) => !notificationIdsRef.current.has(notification.id))
+            .map((notification) => notification.id),
+        ));
+      }
+      notificationIdsRef.current = fetchedIds;
+      setNotifications(fetchedNotifications);
       setLoadError(null);
     } catch (err) {
       console.error(err);
@@ -63,7 +78,7 @@ function App() {
       // picks up changes a nudge never announced (a mark-as-read from another tab).
       connection.on('notificationReceived', () => {
         clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = setTimeout(() => refresh(), NUDGE_DEBOUNCE_MS);
+        refreshTimerRef.current = setTimeout(() => refresh(undefined, { animateNew: true }), NUDGE_DEBOUNCE_MS);
       });
       connection.onreconnected(() => refresh());
       connection.onclose(() => setStatus('disconnected'));
@@ -115,7 +130,7 @@ function App() {
           <div className="inbox-heading"><div><p className="section-kicker">Innboks</p><h2 id="inbox-heading">Mottatte varsler</h2></div><span className="message-count">{unreadCount} uleste · {notifications.length} totalt</span></div>
           {hasError && <MdAlertMessage theme="error" label="Kunne ikke koble til" description={status.replace('error: ', '')} fullWidth />}
           {loadError && <MdAlertMessage theme="error" label="Kunne ikke hente varsler" description={loadError} fullWidth />}
-          {notifications.length === 0 ? <div className="empty-state"><MdIconInfo /><h3>Ingen varsler ennå</h3><p>{isConnected ? 'Denne siden oppdateres automatisk når et varsel mottas.' : 'Koble til for å hente varslene dine.'}</p></div> : <ol className="notification-list">{notifications.map((notification) => <li className={notification.readUtc ? 'notification-card is-read' : 'notification-card'} key={notification.id}><div className="notification-meta"><span><MdIconSchedule /> {new Date(notification.createdUtc).toLocaleString('nb-NO')}</span>{notification.readUtc ? <span className="read-flag" title="Lest"><MdIconCheckCircle aria-hidden="true" /></span> : <MdIconButton label="Marker som lest" showTooltip theme="plain" className="mark-read-button" onClick={() => onMarkRead(notification.id)}><span aria-hidden="true">🔔</span></MdIconButton>}</div><p className="notification-content">{notification.content}</p></li>)}</ol>}
+          {notifications.length === 0 ? <div className="empty-state"><MdIconInfo /><h3>Ingen varsler ennå</h3><p>{isConnected ? 'Denne siden oppdateres automatisk når et varsel mottas.' : 'Koble til for å hente varslene dine.'}</p></div> : <ol className="notification-list">{notifications.map((notification) => <li className={`${notification.readUtc ? 'notification-card is-read' : 'notification-card'}${newNotificationIds.has(notification.id) ? ' is-new' : ''}`} key={notification.id}><div className="notification-meta"><span><MdIconSchedule /> {new Date(notification.createdUtc).toLocaleString('nb-NO')}</span>{notification.readUtc ? <span className="read-flag" title="Lest"><MdIconCheckCircle aria-hidden="true" /></span> : <MdIconButton label="Marker som lest" showTooltip theme="plain" className="mark-read-button" onClick={() => onMarkRead(notification.id)}><span aria-hidden="true">🔔</span></MdIconButton>}</div><p className="notification-content">{notification.content}</p></li>)}</ol>}
         </section>
       </main>
     </div>
