@@ -8,12 +8,24 @@ Service Bus message producer for local/debug use. Sends `NotificationDto` messag
 ```bash
 cd ServiceBusPostTool
 
-# Interactive: prompts for Receiver ID / Content, sends one message per pair, exits on blank input
+# Interactive: asks which mode to use, then prompts accordingly
 dotnet run
 
 # One-shot: send a single message and exit
 dotnet run -- user-123 "Hello from the post tool"
 ```
+
+Interactive mode asks how to send:
+
+- **`[1]` Manual** (the default) — prompts for a Receiver ID / Content pair per message,
+  sends one message per pair, exits on blank input.
+- **`[2]` Joke stream** — prompts for a single Receiver ID, an interval, and a message count,
+  then sends one line of `jokes.txt` per message on that interval. Ctrl+C stops it early.
+
+The joke stream reads `jokes.txt` or `test/jokes.txt`, looked up in the current directory and
+its parents (the list shipped with the repo lives in `test/jokes.txt`). Set `JOKES_FILE` to use
+a different file — any text file with one message per line; blank lines are skipped. If the
+requested count exceeds the number of lines, the list repeats from the start.
 
 ## Environment Variables
 
@@ -25,6 +37,8 @@ Default: `signalr-fun-notifications`
 Default: `120`
 - `SERVICEBUS_RETRY_SECONDS`
 Default: `3`
+- `JOKES_FILE`
+Default: none — `jokes.txt` / `test/jokes.txt` is discovered by walking up from the current directory.
 
 ## Connecting to an external emulator
 

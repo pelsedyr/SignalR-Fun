@@ -41,26 +41,109 @@ if (args.Length > 0)
 
 // Interactive mode
 Console.WriteLine($"Posting to queue '{queueName}'.");
-Console.WriteLine("Enter a Receiver ID and Content for each message. Leave Receiver ID blank, or press Ctrl+C, to exit.");
 Console.WriteLine();
 
-while (!cancellationSource.IsCancellationRequested)
+switch (PromptMode())
 {
-    Console.Write("Receiver ID: ");
-    var receiverId = Console.ReadLine();
-    if (string.IsNullOrWhiteSpace(receiverId) || cancellationSource.IsCancellationRequested)
+    case PostMode.Manual:
+        await RunManualAsync(cancellationSource.Token);
         break;
-
-    Console.Write("Content:     ");
-    var content = Console.ReadLine();
-    if (string.IsNullOrWhiteSpace(content) || cancellationSource.IsCancellationRequested)
+    case PostMode.JokeStream:
+        await RunJokeStreamAsync(cancellationSource.Token);
         break;
-
-    await SendNotificationAsync(new NotificationDto(receiverId, content), cancellationSource.Token);
-    Console.WriteLine();
 }
 
 Console.WriteLine("Done.");
+
+// Original behavior: a Receiver ID / Content pair per message, blank input exits.
+async Task RunManualAsync(CancellationToken cancellationToken)
+{
+    Console.WriteLine("Enter a Receiver ID and Content for each message. Leave Receiver ID blank, or press Ctrl+C, to exit.");
+    Console.WriteLine();
+
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        Console.Write("Receiver ID: ");
+        var receiverId = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(receiverId) || cancellationToken.IsCancellationRequested)
+            break;
+
+        Console.Write("Content:     ");
+        var content = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(content) || cancellationToken.IsCancellationRequested)
+            break;
+
+        await SendNotificationAsync(new NotificationDto(receiverId, content), cancellationToken);
+        Console.WriteLine();
+    }
+}
+
+// Streams lines from jokes.txt to a single receiver on a fixed interval.
+async Task RunJokeStreamAsync(CancellationToken cancellationToken)
+{
+    var jokesPath = FindJokesFile();
+    if (jokesPath is null)
+    {
+        Console.Error.WriteLine("Could not find a joke list.");
+        Console.Error.WriteLine("Looked for jokes.txt and test/jokes.txt in the current directory and its parents.");
+        Console.Error.WriteLine("Set JOKES_FILE to point at one instead: a text file with one message per line.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    var jokes = File.ReadAllLines(jokesPath)
+        .Select(line => line.Trim())
+        .Where(line => line.Length > 0)
+        .ToArray();
+
+    if (jokes.Length == 0)
+    {
+        Console.Error.WriteLine($"'{jokesPath}' has no non-blank lines.");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    Console.WriteLine($"Loaded {jokes.Length} jokes from {jokesPath}.");
+    Console.WriteLine();
+
+    var receiverId = PromptWithDefault("Receiver ID", "user-123");
+    if (receiverId is null)
+        return;
+
+    var intervalSeconds = PromptInteger("Interval in seconds", 5, minimum: 0);
+    if (intervalSeconds is null)
+        return;
+
+    var count = PromptInteger("How many messages", jokes.Length, minimum: 1);
+    if (count is null)
+        return;
+
+    if (count > jokes.Length)
+        Console.WriteLine($"Only {jokes.Length} jokes available; the list will repeat from the start.");
+
+    Console.WriteLine();
+    Console.WriteLine($"Sending {count} joke(s) to '{receiverId}' every {intervalSeconds}s. Press Ctrl+C to stop early.");
+    Console.WriteLine();
+
+    for (var index = 0; index < count && !cancellationToken.IsCancellationRequested; index++)
+    {
+        await SendNotificationAsync(new NotificationDto(receiverId, jokes[index % jokes.Length]), cancellationToken);
+
+        if (index == count - 1 || intervalSeconds == 0)
+            continue;
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds.Value), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            break;
+        }
+    }
+
+    Console.WriteLine();
+}
 
 async Task SendNotificationAsync(NotificationDto notification, CancellationToken cancellationToken)
 {
@@ -100,6 +183,94 @@ async Task SendNotificationAsync(NotificationDto notification, CancellationToken
             await Task.Delay(TimeSpan.FromSeconds(retryDelaySeconds), cancellationToken);
         }
     }
+}
+
+static PostMode PromptMode()
+{
+    while (true)
+    {
+        Console.WriteLine("How do you want to send?");
+        Console.WriteLine("  [1] Manual      - enter a Receiver ID and Content per message");
+        Console.WriteLine("  [2] Joke stream - send jokes from jokes.txt to one receiver on an interval");
+        Console.Write("Choice [1]: ");
+
+        var answer = Console.ReadLine();
+        if (answer is null)
+            return PostMode.Exit;
+
+        switch (answer.Trim().ToLowerInvariant())
+        {
+            case "":
+            case "1":
+            case "m":
+            case "manual":
+                Console.WriteLine();
+                return PostMode.Manual;
+            case "2":
+            case "j":
+            case "joke":
+            case "jokes":
+                Console.WriteLine();
+                return PostMode.JokeStream;
+        }
+
+        Console.WriteLine("Enter 1 or 2.");
+        Console.WriteLine();
+    }
+}
+
+// Returns null on end of input, so piped runs stop instead of looping on a re-prompt.
+static string? PromptWithDefault(string label, string fallback)
+{
+    Console.Write($"{label} [{fallback}]: ");
+    var value = Console.ReadLine();
+    if (value is null)
+        return null;
+
+    value = value.Trim();
+    return value.Length == 0 ? fallback : value;
+}
+
+static int? PromptInteger(string label, int fallback, int minimum)
+{
+    while (true)
+    {
+        var raw = PromptWithDefault(label, fallback.ToString());
+        if (raw is null)
+            return null;
+
+        if (int.TryParse(raw, out var value) && value >= minimum)
+            return value;
+
+        Console.WriteLine($"Enter a whole number of {minimum} or more.");
+    }
+}
+
+// jokes.txt lives in test/ next to the project, so check both that and the directory itself
+// on the way up -- the tool is run from the project directory or the repo root.
+static string? FindJokesFile()
+{
+    var configured = Environment.GetEnvironmentVariable("JOKES_FILE");
+    if (!string.IsNullOrWhiteSpace(configured))
+        return File.Exists(configured) ? configured : null;
+
+    var dir = new DirectoryInfo(Environment.CurrentDirectory);
+    for (var depth = 0; dir is not null && depth < 6; depth++, dir = dir.Parent)
+    {
+        string[] candidates =
+        [
+            Path.Combine(dir.FullName, "jokes.txt"),
+            Path.Combine(dir.FullName, "test", "jokes.txt")
+        ];
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+    }
+
+    return null;
 }
 
 static string GetConfiguration(string key, string fallback)
@@ -186,4 +357,11 @@ static bool IsTransient(ServiceBusException exception)
         or ServiceBusFailureReason.MessagingEntityNotFound
         or ServiceBusFailureReason.GeneralError
         or ServiceBusFailureReason.ServiceBusy;
+}
+
+enum PostMode
+{
+    Manual,
+    JokeStream,
+    Exit
 }
