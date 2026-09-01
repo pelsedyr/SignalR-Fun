@@ -114,6 +114,10 @@ function App() {
       <header className="app-header"><div className="header-content">
         <img className="brand-logo" src={miljodirektoratetLogo} alt="Miljødirektoratet" />
         <div><p className="eyebrow">SignalR · meldingsmottaker</p><h1>Følg varslene mens de skjer</h1></div>
+        <div className="notification-indicator" role="status" aria-label={`${unreadCount} uleste varsler`}>
+          <span className="notification-bell" aria-hidden="true">🔔</span>
+          <span className="notification-badge">{unreadCount}</span>
+        </div>
       </div></header>
 
       <main className="main-content">
@@ -130,7 +134,7 @@ function App() {
           <div className="inbox-heading"><div><p className="section-kicker">Innboks</p><h2 id="inbox-heading">Mottatte varsler</h2></div><span className="message-count">{unreadCount} uleste · {notifications.length} totalt</span></div>
           {hasError && <MdAlertMessage theme="error" label="Kunne ikke koble til" description={status.replace('error: ', '')} fullWidth />}
           {loadError && <MdAlertMessage theme="error" label="Kunne ikke hente varsler" description={loadError} fullWidth />}
-          {notifications.length === 0 ? <div className="empty-state"><MdIconInfo /><h3>Ingen varsler ennå</h3><p>{isConnected ? 'Denne siden oppdateres automatisk når et varsel mottas.' : 'Koble til for å hente varslene dine.'}</p></div> : <ol className="notification-list">{notifications.map((notification) => <li className={`${notification.readUtc ? 'notification-card is-read' : 'notification-card'}${newNotificationIds.has(notification.id) ? ' is-new' : ''}`} key={notification.id}><div className="notification-meta"><span><MdIconSchedule /> {new Date(notification.createdUtc).toLocaleString('nb-NO')}</span>{notification.readUtc ? <span className="read-flag" title="Lest"><MdIconCheckCircle aria-hidden="true" /></span> : <MdIconButton label="Marker som lest" showTooltip theme="plain" className="mark-read-button" onClick={() => onMarkRead(notification.id)}><span aria-hidden="true">🔔</span></MdIconButton>}</div><p className="notification-content">{notification.content}</p></li>)}</ol>}
+          {notifications.length === 0 ? <div className="empty-state"><MdIconInfo /><h3>Ingen varsler ennå</h3><p>{isConnected ? 'Denne siden oppdateres automatisk når et varsel mottas.' : 'Koble til for å hente varslene dine.'}</p></div> : <ol className="notification-list">{notifications.map((notification) => <li className={`${notification.readUtc ? 'notification-card is-read' : 'notification-card'}${newNotificationIds.has(notification.id) ? ' is-new' : ''}`} key={notification.id}><div className="notification-meta"><span><MdIconSchedule /> {new Date(notification.createdUtc).toLocaleString('nb-NO')}</span>{notification.readUtc ? <span className="read-flag" title="Lest"><MdIconCheckCircle aria-hidden="true" /></span> : <MdIconButton label="Marker som lest" showTooltip theme="plain" className="mark-read-button" onClick={() => onMarkRead(notification.id)}><span aria-hidden="true">👍</span></MdIconButton>}</div><p className="notification-content">{notification.content}</p></li>)}</ol>}
         </section>
       </main>
     </div>

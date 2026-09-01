@@ -29,6 +29,35 @@
     width: auto;
     flex-shrink: 0;
 }
+.notification-indicator {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-left: auto;
+}
+.notification-bell {
+    font-size: 1.6rem;
+    line-height: 1;
+}
+.notification-badge {
+    position: absolute;
+    top: 0;
+    right: -0.2rem;
+    display: grid;
+    place-items: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.25rem;
+    border: 2px solid var(--forest);
+    border-radius: 999px;
+    background: #c6ee84;
+    color: #15251e;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+}
 .eyebrow,
 .section-kicker {
     margin: 0 0 0.3rem;
@@ -206,8 +235,8 @@ h2 {
     color: var(--forest);
     font-size: 0.86rem;
 }
-/* The bell is an emoji, not an md-react icon -- the icon set has no bell. Size it
-   explicitly so it matches the neighbouring MdIconSchedule glyph. */
+/* The thumbs-up is an emoji, not an md-react icon. Size it explicitly so it matches
+   the neighbouring MdIconSchedule glyph. */
 .mark-read-button span[aria-hidden] {
     font-size: 1.1rem;
     line-height: 1;
