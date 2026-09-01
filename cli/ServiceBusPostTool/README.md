@@ -24,8 +24,11 @@ Interactive mode asks how to send:
 
 The joke stream reads `jokes.txt` or `test/jokes.txt`, looked up in the current directory and
 its parents (the list shipped with the repo lives in `test/jokes.txt`). Set `JOKES_FILE` to use
-a different file — any text file with one message per line; blank lines are skipped. If the
-requested count exceeds the number of lines, the list repeats from the start.
+a different file — any text file with one message per line; blank lines are skipped.
+
+The list is shuffled on load, so a run shorter than the file still draws from all of it. Every
+joke goes out once before any repeats; if the requested count exceeds the number of lines, the
+list is reshuffled and the next pass begins.
 
 ## Environment Variables
 

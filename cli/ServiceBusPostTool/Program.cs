@@ -103,7 +103,11 @@ async Task RunJokeStreamAsync(CancellationToken cancellationToken)
         return;
     }
 
-    Console.WriteLine($"Loaded {jokes.Length} jokes from {jokesPath}.");
+    // Random order, so even a short run gets a mix from the whole file rather than
+    // marching through it from the top.
+    Random.Shared.Shuffle(jokes);
+
+    Console.WriteLine($"Loaded {jokes.Length} jokes from {jokesPath}, shuffled.");
     Console.WriteLine();
 
     var receiverId = PromptWithDefault("Receiver ID", "user-123");
@@ -119,15 +123,21 @@ async Task RunJokeStreamAsync(CancellationToken cancellationToken)
         return;
 
     if (count > jokes.Length)
-        Console.WriteLine($"Only {jokes.Length} jokes available; the list will repeat from the start.");
+        Console.WriteLine($"Only {jokes.Length} jokes available; the list reshuffles and repeats after that.");
 
     Console.WriteLine();
-    Console.WriteLine($"Sending {count} joke(s) to '{receiverId}' every {intervalSeconds}s. Press Ctrl+C to stop early.");
+    Console.WriteLine($"Sending {count} joke(s) in random order to '{receiverId}' every {intervalSeconds}s. Press Ctrl+C to stop early.");
     Console.WriteLine();
 
     for (var index = 0; index < count && !cancellationToken.IsCancellationRequested; index++)
     {
-        await SendNotificationAsync(new NotificationDto(receiverId, jokes[index % jokes.Length]), cancellationToken);
+        var position = index % jokes.Length;
+
+        // Every joke goes out once before any repeats; a new shuffle starts each pass.
+        if (index > 0 && position == 0)
+            Random.Shared.Shuffle(jokes);
+
+        await SendNotificationAsync(new NotificationDto(receiverId, jokes[position]), cancellationToken);
 
         if (index == count - 1 || intervalSeconds == 0)
             continue;
