@@ -110,7 +110,7 @@ async Task RunJokeStreamAsync(CancellationToken cancellationToken)
     Console.WriteLine($"Loaded {jokes.Length} jokes from {jokesPath}, shuffled.");
     Console.WriteLine();
 
-    var receiverId = PromptWithDefault("Receiver ID", "user-123");
+    var receiverId = PromptWithDefault("Receiver ID", "bursdag");
     if (receiverId is null)
         return;
 

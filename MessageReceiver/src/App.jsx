@@ -10,7 +10,7 @@ import { fetchNotifications, markRead } from './api';
 const NUDGE_DEBOUNCE_MS = 300;
 
 function App() {
-  const [userId, setUserId] = useState('user-123');
+  const [userId, setUserId] = useState('bursdag');
   const [status, setStatus] = useState('disconnected');
   const [notifications, setNotifications] = useState([]);
   const [newNotificationIds, setNewNotificationIds] = useState(() => new Set());

@@ -12,7 +12,7 @@ cd ServiceBusPostTool
 dotnet run
 
 # One-shot: send a single message and exit
-dotnet run -- user-123 "Hello from the post tool"
+dotnet run -- bursdag "Hello from the post tool"
 ```
 
 Interactive mode asks how to send:

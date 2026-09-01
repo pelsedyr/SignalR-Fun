@@ -32,10 +32,10 @@ docker compose up -d --build
 
 That's the whole stack — emulators, the function and the frontend.
 
-Open http://localhost:5173, connect as `user-123`, then in another terminal:
+Open http://localhost:5173, connect as `bursdag`, then in another terminal:
 
 ```bash
-cd cli/ServiceBusPostTool && dotnet run -- user-123 "hei"
+cd cli/ServiceBusPostTool && dotnet run -- bursdag "hei"
 ```
 
 The notification should appear in the browser within a second.
@@ -275,7 +275,7 @@ directly to the SignalR service.
 | `userId` | query | yes | Becomes the SignalR user id the nudge is addressed to |
 
 ```bash
-curl -sX POST 'http://localhost:7071/api/negotiate?userId=user-123'
+curl -sX POST 'http://localhost:7071/api/negotiate?userId=bursdag'
 # 200 → {"url":"http://localhost:8888/client/?hub=notifications","accessToken":"…"}
 ```
 
@@ -291,14 +291,14 @@ The inbox. This is the **only** source of rendered notification data — SignalR
 Returns newest-first (`ORDER BY c.createdUtc DESC`).
 
 ```bash
-curl -s 'http://localhost:7071/api/notifications?userId=user-123'
+curl -s 'http://localhost:7071/api/notifications?userId=bursdag'
 ```
 
 ```json
 [
   {
     "id": "d2032a85-f1b0-4b7d-a42b-6037b48dbc5a",
-    "receiverId": "user-123",
+    "receiverId": "bursdag",
     "content": "sendt mens frakoblet",
     "createdUtc": "2026-08-25T09:53:35.867+00:00",
     "readUtc": null
@@ -321,7 +321,7 @@ Marks one notification read by stamping `readUtc`.
 | `userId` | query | yes | Partition key — required because this is a point write |
 
 ```bash
-curl -sX POST 'http://localhost:7071/api/notifications/<id>/read?userId=user-123'
+curl -sX POST 'http://localhost:7071/api/notifications/<id>/read?userId=bursdag'
 ```
 
 | Status | When |
@@ -396,8 +396,8 @@ docker compose logs -f message-receiver                   # Vite output, incl. H
 docker compose ps                                         # what's up
 cd cli/ServiceBusPeekTool && dotnet run                    # watch the queue (Q to quit + drain)
 cd cli/ServiceBusPostTool && dotnet run                    # interactive post mode
-curl -s 'http://localhost:5173/api/notifications?userId=user-123'      # the inbox, via the proxy
-curl -sX POST 'http://localhost:5173/api/negotiate?userId=user-123'   # tests the whole proxy chain
+curl -s 'http://localhost:5173/api/notifications?userId=bursdag'      # the inbox, via the proxy
+curl -sX POST 'http://localhost:5173/api/negotiate?userId=bursdag'   # tests the whole proxy chain
 curl -s http://localhost:8081/dbs/log/colls                            # Cosmos container + partition key
 open http://localhost:1234                                             # Cosmos data explorer
 docker compose down                                       # stop; notifications SURVIVE
