@@ -5,14 +5,21 @@ up by an Azure Function, which fans it out to a specific user's browser over Sig
 Everything runs on emulators — no Azure subscription, no cloud resources.
 
 ```
-ServiceBusPostTool ──▶ Service Bus emulator ──▶ MessageHub ──▶ Cosmos DB emulator
-     (CLI, host)          (container)          (container)        (container)
-                                                    │                   ▲
-                                          nudge ────┤                   │ REST backfill
-                                                    ▼                   │
-                                            SignalR emulator ──▶ MessageReceiver
-                                               (container)     (container → browser)
+ServiceBusPostTool ───────────────────┐
+     (CLI, host)                      │
+                                      ▼
+MessageSender ──▶ MessageHub ──▶ Service Bus emulator ──▶ MessageHub ──▶ Cosmos DB emulator
+(container →      POST /api/          (container)         (container)       (container)
+   browser)       notifications                                │                  ▲
+                                                       nudge ──┤                  │ REST
+                                                               ▼                  │ backfill
+                                                       SignalR emulator ──▶ MessageReceiver
+                                                          (container)     (container → browser)
 ```
+
+Two producers, one queue. The CLI posts to Service Bus directly; the browser can't — that
+would mean shipping the connection string to the client — so it posts to MessageHub, which
+enqueues on its behalf. Downstream, nothing can tell the two apart.
 
 `MessageHub` is the interesting part: a `ServiceBusTrigger` reads the queue, writes a
 `NotificationDocument` to Cosmos, then returns a `SignalRMessageAction` addressed to
@@ -32,13 +39,15 @@ docker compose up -d --build
 
 That's the whole stack — emulators, the function and the frontend.
 
-Open http://localhost:5173, connect as `bursdag`, then in another terminal:
+Open http://localhost:5173 and connect as `bursdag`. Then send it something — either from
+the sender app at http://localhost:5175, or from the CLI:
 
 ```bash
 cd cli/ServiceBusPostTool && dotnet run -- bursdag "hei"
 ```
 
-The notification should appear in the browser within a second.
+The notification should appear in the receiver within a second. Both producers put the same
+message on the same queue; nothing downstream can tell them apart.
 
 ## Registry deployment
 
@@ -86,8 +95,8 @@ From a build machine, run `build-and-push-to-registry.sh` from the repo root:
 
 It reads the registry from `.env.registry`'s `IMAGE_PREFIX` (or `$REGISTRY`, if set, which takes
 priority), prompts for an image tag (or reads `$TAG`), builds `signalr-emulator`, `message-hub`,
-and `message-receiver` (the latter via `MessageReceiver/Dockerfile.production`), and pushes all
-three — tagged with the version *and* `latest`, so `IMAGE_TAG=latest` always resolves to whatever
+`message-receiver` and `message-sender` (the last two via their `Dockerfile.production`), and
+pushes all four — tagged with the version *and* `latest`, so `IMAGE_TAG=latest` always resolves to whatever
 was pushed most recently. For fully non-interactive use:
 
 ```bash
@@ -124,7 +133,8 @@ If Nginx Proxy Manager ever needs to run on this *same* Docker host and reach co
 name instead of by published port, give the `signalr-fun` network in
 `docker-compose.registry.yaml` `external: true`, create it once with
 `docker network create signalr-fun`, and attach NPM's own Compose project to that same
-external network. Configure proxy hosts for `message-receiver:80` (the web application) and
+external network. Configure proxy hosts for `message-receiver:80` and `message-sender:80`
+(the web applications) and
 `signalr-emulator:8888` (with WebSocket support) — the second host's public URL becomes
 `SIGNALR_CLIENT_ENDPOINT` above instead of `http://<host>:8888`.
 
@@ -132,15 +142,16 @@ external network. Configure proxy hosts for `message-receiver:80` (the web appli
 
 | Path | What it is | How it runs |
 |---|---|---|
-| `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate`, `GetNotifications`, `MarkNotificationRead` (HTTP) + `ServiceBusQueueTrigger` (Service Bus → Cosmos → SignalR) | container, port 7071 |
+| `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate`, `GetNotifications`, `MarkNotificationRead`, `SendNotification` (HTTP) + `ServiceBusQueueTrigger` (Service Bus → Cosmos → SignalR) | container, port 7071 |
 | `MessageReceiver/` | React 19 + Vite SPA using `@microsoft/signalr`; renders from the REST API, nudged by SignalR | container, port 5173 |
+| `MessageSender/` | React 19 + Vite SPA; posts to `POST /api/notifications`, which enqueues onto the Service Bus queue. A browser-shaped `ServiceBusPostTool` | container, port 5175 |
 | `cli/ServiceBusPostTool/` | Posts `NotificationDto` messages onto the queue | host, `dotnet run` |
 | `cli/ServiceBusPeekTool/` | Non-destructive queue watcher; drains on exit | host, `dotnet run` |
 | `Dockerfile` | Builds the Azure SignalR emulator image | container, port 8888 |
 | `servicebus-emulator.config.json` | Declares the `signalr-fun-notifications` queue | mounted into the emulator |
 | `signalr-emulator.settings.json` | Upstream webhook template | mounted into the emulator |
 
-Ports: `5173` frontend · `7071` function · `8888` SignalR emulator · `8081` Cosmos gateway ·
+Ports: `5173` receiver frontend · `5175` sender frontend · `7071` function · `8888` SignalR emulator · `8081` Cosmos gateway ·
 `1234` Cosmos data explorer · `5672`/`5300` Service Bus emulator · `10000-10002` Azurite ·
 `1433` MSSQL (backing store for the Service Bus emulator). Same list for both
 `docker-compose.yaml` and `docker-compose.registry.yaml`.
@@ -157,17 +168,18 @@ frontend or the function on the host instead of in a container — see below.
 docker compose watch
 ```
 
-Leave that running. It covers both code services, but they behave differently on save
+Leave that running. It covers all three code services, but they behave differently on save
 because their reload stories are different:
 
 | Save a file in | What happens | Turnaround |
 |---|---|---|
 | `MessageReceiver/` | files sync into the running container, Vite hot-reloads | sub-second |
+| `MessageSender/` | files sync into the running container, Vite hot-reloads | sub-second |
 | `MessageHub/` | image rebuilds, container is recreated | ~26 s |
 
 Ignores are set up so pointless work doesn't happen: `node_modules/` and `dist/` for the
-frontend, `bin/`, `obj/`, `.vscode/` and `local.settings.json` for the function. Changing
-`MessageReceiver/package.json` or `package-lock.json` is the one frontend edit that *does*
+frontends, `bin/`, `obj/`, `.vscode/` and `local.settings.json` for the function. Changing
+either frontend's `package.json` or `package-lock.json` is the one frontend edit that *does*
 force a rebuild, since dependencies live in the image.
 
 To rebuild on demand instead:
@@ -177,28 +189,32 @@ docker compose up -d --build message-hub
 docker compose logs -f message-hub
 ```
 
-**`docker compose watch` only watches `./MessageHub` and `./MessageReceiver`.** Changes to
+**`docker compose watch` only watches `./MessageHub`, `./MessageReceiver` and
+`./MessageSender`.** Changes to
 `docker-compose.yaml` itself — ports, env vars, connection strings — are *not* picked up.
 Apply those with `docker compose up -d`.
 
-### Running either one on the host instead
+### Running one of them on the host instead
 
-Both containers publish the same port their host tooling uses — 7071 for `func start`,
-5173 for `npm run dev` — so the SignalR emulator's upstream, the `/api` proxy and the
-editor tasks don't care which side is running. Stop the container to free the port:
+Every container publishes the same port its host tooling uses — 7071 for `func start`,
+5173 and 5175 for `npm run dev` — so the SignalR emulator's upstream, the `/api` proxy and
+the editor tasks don't care which side is running. Stop the container to free the port:
 
 ```bash
 docker compose stop message-hub      && cd MessageHub      && func start
 docker compose stop message-receiver && cd MessageReceiver && npm run dev
+docker compose stop message-sender   && cd MessageSender   && npm run dev
 ```
 
 Worth doing for MessageHub when you're iterating hard or want a debugger attached — the
 `func start` loop is a few seconds versus ~26 for a container rebuild. Rarely worth it for
 the frontend, since the container already hot-reloads.
 
-**Watch out:** `func start` fails loudly if 7071 is taken, but Vite does *not* — it prints
-`Port 5173 is in use, trying another one...` and quietly moves to **5174**. If the page
-looks stale, check whether the container is still holding 5173.
+**Watch out:** `func start` fails loudly if 7071 is taken, and so does MessageSender —
+its `vite.config.js` sets `strictPort: true`. MessageReceiver does *not*: it prints
+`Port 5173 is in use, trying another one...` and quietly moves to **5174**. If the receiver
+page looks stale, check whether the container is still holding 5173. Nothing is meant to
+live on 5174, so a page there is always a stray fallback.
 
 ## Configuration
 
@@ -244,8 +260,8 @@ so a fresh volume needs no manual setup.
 
 Keep the two sides in sync when you add a setting.
 
-The frontend has one setting of the same shape, `API_PROXY_TARGET`, read by
-`MessageReceiver/vite.config.js`:
+Both frontends have one setting of the same shape, `API_PROXY_TARGET`, read by
+`MessageReceiver/vite.config.js` and `MessageSender/vite.config.js`:
 
 | | Host (`npm run dev`) | Container |
 |---|---|---|
@@ -259,8 +275,8 @@ hairpin through host port 7071 works either way. Note the name is deliberately *
 
 ## API
 
-All four functions are HTTP-anonymous and served under `/api` on port `7071`. The frontend
-reaches them through the Vite proxy on `5173`, so either origin works.
+All five functions are HTTP-anonymous and served under `/api` on port `7071`. The frontends
+reach them through the Vite proxy on `5173` and `5175`, so either origin works.
 
 `userId` is a plain query parameter throughout, matching the shortcut in `Negotiate.cs`. A real
 deployment derives it from an authenticated claim — until then, anyone can pass any id.
@@ -310,6 +326,36 @@ curl -s 'http://localhost:7071/api/notifications?userId=bursdag'
 |---|---|
 | `200` | Always on success — an unknown `userId` returns `[]`, not `404` |
 | `400` | `userId` missing → `{"error":"userId is required."}` |
+
+### `POST /api/notifications`
+
+The send side. Validates the body, then puts a message on the same Service Bus queue
+`cli/ServiceBusPostTool` posts to — the Cosmos write and the SignalR nudge stay
+`ServiceBusQueueTrigger`'s job, so there is still exactly one code path creating
+notifications. This endpoint exists because a browser cannot talk to Service Bus directly:
+that would mean shipping the connection string into client-side JavaScript.
+
+| Field | In | Required | Notes |
+|---|---|---|---|
+| `receiverId` | body | yes | Trimmed, max 128 chars. Becomes the Cosmos partition key *and* the SignalR user id |
+| `content` | body | yes | Trimmed, max 4096 chars |
+
+```bash
+curl -sX POST 'http://localhost:7071/api/notifications' \
+  -H 'content-type: application/json' \
+  -d '{"receiverId":"bursdag","content":"hei"}'
+# 202 → {"id":"71ef41c9-78b8-45b1-bdf2-2842409959d6","receiverId":"bursdag"}
+```
+
+| Status | When |
+|---|---|
+| `202` | Enqueued. **Accepted, not Created** — the notification does not exist yet; the queue trigger writes it a moment later |
+| `400` | Body isn't JSON, or `receiverId`/`content` blank or over-long → `{"error":"…"}` |
+| `503` | Service Bus unreachable, with `Retry-After: 5`. The request was fine; the bus wasn't |
+
+The returned `id` is the Service Bus `MessageId`, which the trigger reuses as the Cosmos
+document id — so it is the same `id` that later appears in `GET /api/notifications`. Because
+delivery is asynchronous, a `GET` issued immediately after the `202` may not show the item yet.
 
 ### `POST /api/notifications/{id}/read`
 
@@ -393,11 +439,15 @@ round-trip and a new failure mode to avoid an operation that is already harmless
 ```bash
 docker compose logs -f message-hub                        # function logs
 docker compose logs -f message-receiver                   # Vite output, incl. HMR updates
+docker compose logs -f message-sender                     # same, for the sender
 docker compose ps                                         # what's up
 cd cli/ServiceBusPeekTool && dotnet run                    # watch the queue (Q to quit + drain)
 cd cli/ServiceBusPostTool && dotnet run                    # interactive post mode
 curl -s 'http://localhost:5173/api/notifications?userId=bursdag'      # the inbox, via the proxy
 curl -sX POST 'http://localhost:5173/api/negotiate?userId=bursdag'   # tests the whole proxy chain
+curl -sX POST 'http://localhost:5175/api/notifications' \
+  -H 'content-type: application/json' \
+  -d '{"receiverId":"bursdag","content":"hei"}'                       # the send path, via the sender's proxy
 curl -s http://localhost:8081/dbs/log/colls                            # Cosmos container + partition key
 open http://localhost:1234                                             # Cosmos data explorer
 docker compose down                                       # stop; notifications SURVIVE
@@ -421,3 +471,11 @@ default to the emulator and `signalr-fun-notifications`.
 - `MessageHub/Properties/launchSettings.json` says port 7232 while everything else assumes
   7071.
 - `NotificationDto` is duplicated between `MessageHub/` and `cli/ServiceBusPostTool/`.
+- `POST /api/notifications` is anonymous and takes `receiverId` from the body, so anyone who
+  can reach it can send a notification to anyone. Same shortcut as `userId` on the read side,
+  and more consequential — a real deployment derives the sender's identity from a claim and
+  authorises the target.
+- The palette and layout primitives in `MessageReceiver/src/App.css` and
+  `MessageSender/src/App.css` are copies, as are `miljodirektoratet-logo-white.svg` and the
+  `public/` icons. No shared package by design (there is no workspace here); both stylesheets
+  carry a cross-reference comment. Change one, change the other.

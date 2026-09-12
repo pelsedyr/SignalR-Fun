@@ -105,6 +105,38 @@ services:
     networks:
       - signalr-fun
 
+  message-sender:
+    build:
+      context: ./MessageSender
+    container_name: message-sender
+    # 1:1 mapping for the same reason as message-receiver -- Vite's HMR client connects
+    # back to the host:port the page was served from. 5175 rather than 5174, because 5174
+    # is exactly where Vite silently lands when 5173 is already taken.
+    ports:
+      - "5175:5175"
+    environment:
+      # Same hairpin as message-receiver: through the published host port, so
+      # `docker compose stop message-hub` + `func start` on the host keeps working.
+      API_PROXY_TARGET: "http://host.docker.internal:7071"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - message-hub
+    develop:
+      watch:
+        - action: sync
+          path: ./MessageSender
+          target: /app
+          ignore:
+            - node_modules/
+            - dist/
+        - action: rebuild
+          path: ./MessageSender/package.json
+        - action: rebuild
+          path: ./MessageSender/package-lock.json
+    networks:
+      - signalr-fun
+
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
     container_name: azurite

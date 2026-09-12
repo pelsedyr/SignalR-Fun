@@ -23,7 +23,7 @@ compose_file="$script_dir/docker-compose.registry.yaml"
 # Only the services whose image comes from IMAGE_PREFIX/IMAGE_TAG — the other services
 # (azurite, cosmosdb-emulator, servicebus-emulator, mssql) are fixed Microsoft images that
 # are expensive to re-pull and aren't part of what was deployed from the registry.
-registry_services="signalr-emulator message-hub message-receiver"
+registry_services="signalr-emulator message-hub message-receiver message-sender"
 
 # "docker compose images" reads the containers' actual image metadata, so this reflects
 # reality even if IMAGE_PREFIX isn't set in this shell. Column 2 of the table is REPOSITORY;
