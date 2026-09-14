@@ -19,4 +19,11 @@ public static partial class NotificationsLoggerExtensions
     [LoggerMessage(EventId = 2004, Level = LogLevel.Information,
         Message = "Duplicate write for notification {notificationId}; skipping.")]
     public static partial void LogDuplicateWriteSkipped(this ILogger logger, string notificationId);
+
+    // Warning rather than Information: unlike the four above, this one records a request the
+    // app refused. reason is always an ExceptionMessages.Http constant and never
+    // caller-supplied text — that is what keeps user content out of telemetry.
+    [LoggerMessage(EventId = 2005, Level = LogLevel.Warning,
+        Message = "Rejected send request: {reason}")]
+    public static partial void LogSendRequestRejected(this ILogger logger, string reason);
 }

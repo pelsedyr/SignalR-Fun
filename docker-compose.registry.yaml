@@ -65,6 +65,18 @@ services:
     networks:
       - signalr-fun
 
+  message-sender:
+    image: "${IMAGE_PREFIX:-signalr-fun}/message-sender:${IMAGE_TAG:-latest}"
+    restart: unless-stopped
+    # Host port matches docker-compose.yaml's Vite port for consistency, even though this
+    # container serves the built bundle over Nginx on 80 instead (no HMR to keep aligned).
+    ports:
+      - "5175:80"
+    depends_on:
+      - message-hub
+    networks:
+      - signalr-fun
+
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.36.0
     restart: unless-stopped

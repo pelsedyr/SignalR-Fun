@@ -23,6 +23,11 @@ public static class Strings
 
         public static class ServiceBus
         {
+            // Intentionally the same literal as BindingExpressions.ServiceBusConnection: the
+            // host resolves that one for [ServiceBusTrigger], IConfiguration resolves this one
+            // for the ServiceBusClient in Program.cs. Two readers, one app setting — exactly
+            // the pairing DefaultQueue below already has.
+            public const string ConnectionString = "ServiceBusConnection";
             public const string DefaultQueue = "Email:ServiceBus:DefaultQueue";
         }
     }
@@ -51,6 +56,17 @@ public static class Strings
 
         /// <summary>Minimum manual RU/s. The emulator may ignore it; a real account will not.</summary>
         public const int DefaultThroughput = 400;
+    }
+
+    /// <summary>
+    /// Bounds on what a caller may send. These are product limits, not Service Bus limits —
+    /// the standard tier allows a 256 KB message, and a 256 KB notification is legal and
+    /// terrible.
+    /// </summary>
+    public static class Notifications
+    {
+        public const int MaxContentLength = 4096;
+        public const int MaxReceiverIdLength = 128;
     }
 
     public static class SignalR

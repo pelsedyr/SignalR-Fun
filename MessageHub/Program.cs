@@ -1,5 +1,7 @@
+using Azure.Messaging.ServiceBus;
 using MessageHub.Exceptions;
 using MessageHub.Extensions.Logger;
+using MessageHub.Publishers;
 using MessageHub.Repositories;
 using MessageHub.Static;
 using MessageHub.Static.Seed;
@@ -47,6 +49,51 @@ builder.Services.AddSingleton(serviceProvider =>
         },
     });
 });
+
+//Service Bus
+// Singleton for the same reasons as CosmosClient: it owns the AMQP connection, and creating
+// one per request would open and tear down a link on every send. ServiceBusClient is
+// IAsyncDisposable, so the container disposes it at shutdown.
+builder.Services.AddSingleton(serviceProvider =>
+{
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration[ConfigurationKeys.ServiceBus.ConnectionString]
+        ?? throw new ConfigurationException(
+            string.Format(ExceptionMessages.Configuration.MissingConfigurationKey,
+                ConfigurationKeys.ServiceBus.ConnectionString));
+
+    // Connection-string form only. With an identity-based connection Azure sets
+    // ServiceBusConnection__fullyQualifiedNamespace instead and this lookup returns null;
+    // that would need the (fqns, TokenCredential) overload. Every environment in this repo
+    // — local.settings.json, both compose files — uses the connection string.
+    return new ServiceBusClient(connectionString, new ServiceBusClientOptions
+    {
+        // host.json's extensions.serviceBus settings govern the *trigger*, not this client:
+        // sending through the SDK opts out of them. That asymmetry matters here, because
+        // docker-entrypoint.sh waits for the bus but never fails, so the host can and does
+        // start with the bus still unavailable. The SDK default (60s TryTimeout x 3 retries)
+        // would hang an HTTP request for minutes; bound it to something a browser can wait for.
+        RetryOptions = new ServiceBusRetryOptions
+        {
+            MaxRetries = 2,
+            TryTimeout = TimeSpan.FromSeconds(5),
+        },
+    });
+});
+
+builder.Services.AddSingleton(serviceProvider =>
+{
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var queueName = configuration[ConfigurationKeys.ServiceBus.DefaultQueue]
+        ?? throw new ConfigurationException(
+            string.Format(ExceptionMessages.Configuration.MissingConfigurationKey,
+                ConfigurationKeys.ServiceBus.DefaultQueue));
+
+    return serviceProvider.GetRequiredService<ServiceBusClient>().CreateSender(queueName);
+});
+
+//Publishers
+builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 
 //Repositories
 builder.Services.AddSingleton<INotificationRepository, NotificationRepository>();

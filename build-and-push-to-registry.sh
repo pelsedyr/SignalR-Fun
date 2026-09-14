@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds the three deployable images (signalr-emulator, message-hub, message-receiver)
+# Builds the four deployable images (signalr-emulator, message-hub, message-receiver,
+# message-sender)
 # and pushes them to a registry, tagged for docker-compose.registry.yaml's IMAGE_PREFIX
 # / IMAGE_TAG variables. Run from the repo root.
 #
@@ -53,7 +54,7 @@ else
   tag=${tag:-latest}
 fi
 
-images="signalr-emulator message-hub message-receiver"
+images="signalr-emulator message-hub message-receiver message-sender"
 also_latest=$([ "$tag" != "latest" ] && echo true || echo false)
 
 echo
@@ -64,6 +65,8 @@ docker build -t "$registry/signalr-emulator:$tag" .
 docker build -t "$registry/message-hub:$tag" ./MessageHub
 docker build -t "$registry/message-receiver:$tag" \
   -f MessageReceiver/Dockerfile.production ./MessageReceiver
+docker build -t "$registry/message-sender:$tag" \
+  -f MessageSender/Dockerfile.production ./MessageSender
 
 for image in $images; do
   if [ "$also_latest" = true ]; then
