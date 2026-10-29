@@ -4,8 +4,11 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: signalr-emulator
+    # Host 18888, not the emulator's default 8888: the avdekl Aspire AppHost's own emulator
+    # (signalr-avdekl) holds 8888, and this one can't be shared with it because it carries
+    # this project's upstream settings. On the compose network it is still signalr-emulator:8888.
     ports:
-      - "8888:8888"
+      - "18888:8888"
     volumes:
       - ./signalr-emulator.settings.json:/app/settings.json:ro
     extra_hosts:
@@ -30,7 +33,7 @@ services:
       Email__ServiceBus__DefaultQueue: "signalr-fun-notifications"
       # Endpoint is how *this container* reaches the emulator; ClientEndpoint is what
       # negotiate hands the *browser*, which can't resolve compose service names.
-      AzureSignalRConnectionString: "Endpoint=http://signalr-emulator:8888;AccessKey=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH;Version=1.0;ClientEndpoint=http://localhost:8888;"
+      AzureSignalRConnectionString: "Endpoint=http://signalr-emulator:8888;AccessKey=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH;Version=1.0;ClientEndpoint=http://localhost:18888;"
       Notifications__HubName: "notifications"
       # Plain http: the vnext emulator serves the gateway over HTTP, so there is no
       # certificate to import. The SDK is pinned to this endpoint with LimitToEndpoint
@@ -137,8 +140,12 @@ services:
     networks:
       - signalr-fun
 
+  # Infrastructure below mirrors the avdekl Aspire AppHost (ac-avdekl/src/avdekl-aspire): same
+  # pinned image tags, and Cosmos/Service Bus/MSSQL on the same fixed host ports (Aspire's Azurite
+  # ports are dynamic). It also means the two can't run at once -- stop Aspire's persistent
+  # containers first (`./containers.sh stop` there). Bump tags in step with AppHost.cs.
   azurite:
-    image: mcr.microsoft.com/azure-storage/azurite:3.36.0
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
     container_name: azurite
     ports:
       - "10000:10000"
@@ -148,12 +155,12 @@ services:
       - signalr-fun
 
   cosmosdb-emulator:
-    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260810
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260907
     container_name: cosmosdb-emulator
+    # Data Explorer on host 7504, the Aspire AppHost's port for it (the emulator's own is 1234).
     ports:
       - "8081:8081"
-      - "8080:8080"
-      - "1234:1234"
+      - "7504:1234"
     # Named volume, not a bind mount. /data holds a Postgres cluster owned by uid 1000
     # (cosmosdev); Docker seeds a new *named* volume from the image's content and ownership,
     # whereas a host bind mount would start empty and root-owned and Postgres would fail to

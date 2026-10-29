@@ -18,8 +18,10 @@ services:
   signalr-emulator:
     image: "${IMAGE_PREFIX:-signalr-fun}/signalr-emulator:${IMAGE_TAG:-latest}"
     restart: unless-stopped
+    # Host 18888 rather than 8888, which the avdekl Aspire AppHost's emulator holds. A reverse
+    # proxy in front of SIGNALR_CLIENT_ENDPOINT must forward to this port.
     ports:
-      - "8888:8888"
+      - "18888:8888"
     volumes:
       - ./signalr-emulator.settings.registry.json:/app/settings.json:ro
     networks:
@@ -77,8 +79,11 @@ services:
     networks:
       - signalr-fun
 
+  # Infrastructure below mirrors the avdekl Aspire AppHost, exactly as in docker-compose.yaml:
+  # same pinned tags, and Cosmos/Service Bus/MSSQL on the same fixed host ports. Stop Aspire's persistent containers before `up`, or these
+  # fail to bind their ports (`./containers.sh stop` in ac-avdekl/src/avdekl-aspire).
   azurite:
-    image: mcr.microsoft.com/azure-storage/azurite:3.36.0
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
     restart: unless-stopped
     ports:
       - "10000:10000"
@@ -88,12 +93,11 @@ services:
       - signalr-fun
 
   cosmosdb-emulator:
-    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260810
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260907
     restart: unless-stopped
     ports:
       - "8081:8081"
-      - "8080:8080"
-      - "1234:1234"
+      - "7504:1234"
     volumes:
       - cosmos-data:/data
     healthcheck:

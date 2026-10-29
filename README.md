@@ -117,11 +117,11 @@ To deploy a specific version instead, pass `IMAGE_TAG` explicitly. Ports are pub
 `SIGNALR_CLIENT_ENDPOINT`:
 
 ```bash
-SIGNALR_CLIENT_ENDPOINT=http://<host>:8888 \
+SIGNALR_CLIENT_ENDPOINT=http://<host>:18888 \
 IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
 docker compose -f docker-compose.registry.yaml pull
 
-SIGNALR_CLIENT_ENDPOINT=http://<host>:8888 \
+SIGNALR_CLIENT_ENDPOINT=http://<host>:18888 \
 IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
 docker compose -f docker-compose.registry.yaml up -d
 ```
@@ -136,7 +136,7 @@ name instead of by published port, give the `signalr-fun` network in
 external network. Configure proxy hosts for `message-receiver:80` and `message-sender:80`
 (the web applications) and
 `signalr-emulator:8888` (with WebSocket support) — the second host's public URL becomes
-`SIGNALR_CLIENT_ENDPOINT` above instead of `http://<host>:8888`.
+`SIGNALR_CLIENT_ENDPOINT` above instead of `http://<host>:18888`.
 
 ## What's in the box
 
@@ -147,14 +147,20 @@ external network. Configure proxy hosts for `message-receiver:80` and `message-s
 | `MessageSender/` | React 19 + Vite SPA; posts to `POST /api/notifications`, which enqueues onto the Service Bus queue. A browser-shaped `ServiceBusPostTool` | container, port 5175 |
 | `cli/ServiceBusPostTool/` | Posts `NotificationDto` messages onto the queue | host, `dotnet run` |
 | `cli/ServiceBusPeekTool/` | Non-destructive queue watcher; drains on exit | host, `dotnet run` |
-| `Dockerfile` | Builds the Azure SignalR emulator image | container, port 8888 |
+| `Dockerfile` | Builds the Azure SignalR emulator image | container, port 8888 (host 18888) |
 | `servicebus-emulator.config.json` | Declares the `signalr-fun-notifications` queue | mounted into the emulator |
 | `signalr-emulator.settings.json` | Upstream webhook template | mounted into the emulator |
 
-Ports: `5173` receiver frontend · `5175` sender frontend · `7071` function · `8888` SignalR emulator · `8081` Cosmos gateway ·
-`1234` Cosmos data explorer · `5672`/`5300` Service Bus emulator · `10000-10002` Azurite ·
+Ports: `5173` receiver frontend · `5175` sender frontend · `7071` function · `18888` SignalR emulator · `8081` Cosmos gateway ·
+`7504` Cosmos data explorer · `5672`/`5300` Service Bus emulator · `10000-10002` Azurite ·
 `1433` MSSQL (backing store for the Service Bus emulator). Same list for both
 `docker-compose.yaml` and `docker-compose.registry.yaml`.
+
+The infrastructure uses the same image tags as the avdekl Aspire AppHost
+(`ac-avdekl/src/avdekl-aspire`), and Cosmos (`8081`), Service Bus (`5672`) and MSSQL (`1433`)
+also the same host ports, so only one of the two can run at a time: stop Aspire's persistent containers first with `./containers.sh stop` there. The
+SignalR emulator is the exception. It's built here with this project's upstream settings, so it
+sits on host port `18888` instead of Aspire's `8888`, and the two can run side by side.
 
 ## Prerequisites
 
@@ -292,7 +298,7 @@ directly to the SignalR service.
 
 ```bash
 curl -sX POST 'http://localhost:7071/api/negotiate?userId=bursdag'
-# 200 → {"url":"http://localhost:8888/client/?hub=notifications","accessToken":"…"}
+# 200 → {"url":"http://localhost:18888/client/?hub=notifications","accessToken":"…"}
 ```
 
 ### `GET /api/notifications`
@@ -449,7 +455,7 @@ curl -sX POST 'http://localhost:5175/api/notifications' \
   -H 'content-type: application/json' \
   -d '{"receiverId":"bursdag","content":"hei"}'                       # the send path, via the sender's proxy
 curl -s http://localhost:8081/dbs/log/colls                            # Cosmos container + partition key
-open http://localhost:1234                                             # Cosmos data explorer
+open http://localhost:7504                                             # Cosmos data explorer
 docker compose down                                       # stop; notifications SURVIVE
 docker compose down -v                                    # stop and wipe Cosmos data
 ```
