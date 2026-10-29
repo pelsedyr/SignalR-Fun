@@ -18,18 +18,16 @@ export default defineConfig({
     },
   },
   server: {
-    // 5175, not 5174: MessageReceiver owns 5173, and 5174 is exactly where Vite
-    // silently lands when 5173 is taken. Parking the sender there would make a
-    // stray fallback receiver look like the sender.
-    port: 5175,
+    // This project's port range (18800-18899); MessageReceiver owns 18801.
+    port: 18802,
     // Fail loudly instead of sliding to the next free port.
     strictPort: true,
     proxy: {
-      // Unset on the host, so `npm run dev` still proxies to localhost:7071.
+      // Unset on the host, so `npm run dev` still proxies to localhost:18800.
       // The container sets it, because inside a container localhost is the
       // container itself. Not VITE_-prefixed: this stays server-side and must
       // not be inlined into the client bundle.
-      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:7071',
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:18800',
     },
   },
 })

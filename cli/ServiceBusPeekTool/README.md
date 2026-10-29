@@ -25,7 +25,7 @@ dotnet build
 dotnet run
 
 # Run against the Docker emulator explicitly
-SERVICEBUS_CONNECTION='Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;' \
+SERVICEBUS_CONNECTION='Endpoint=sb://localhost:18820;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;' \
 SERVICEBUS_QUEUE='signalr-fun-notifications' \
 dotnet run
 
@@ -63,7 +63,7 @@ deployment. If found, it asks before using it:
 Found SERVICEBUS_HOST='servicebus.example.net' in .env.registry. Use it instead of localhost? [Y/n]
 ```
 
-Press Enter or `y` to connect to that host instead of `sb://localhost` (same fixed
+Press Enter or `y` to connect to that host instead of `sb://localhost:18820` (same fixed
 emulator credentials, different endpoint); anything else falls back to localhost. If
 `SERVICEBUS_HOST` isn't set at all, the tool goes straight to localhost and prints a one-line
 tip about the option. Setting `SERVICEBUS_CONNECTION` explicitly always skips this prompt.

@@ -4,9 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: signalr-emulator
-    # Host 18888, not the emulator's default 8888: the avdekl Aspire AppHost's own emulator
-    # (signalr-avdekl) holds 8888, and this one can't be shared with it because it carries
-    # this project's upstream settings. On the compose network it is still signalr-emulator:8888.
+    # Every host port in this file sits in 18800-18899, so this stack can run alongside the
+    # avdekl Aspire AppHost, which keeps the protocol defaults (8888, 8081, 5672, 1433, ...).
+    # Container ports are unchanged: on the compose network this is still signalr-emulator:8888.
     ports:
       - "18888:8888"
     volumes:
@@ -20,11 +20,11 @@ services:
     build:
       context: ./MessageHub
     container_name: message-hub
-    # Published on 7071 so the emulator's host.docker.internal:7071 upstream, the Vite
-    # /api proxy and the .vscode/.zed tasks all keep working unchanged. Stop this service
-    # to free the port and run `func start` on the host instead.
+    # Published on 18800, the same port as `func start --port 18800` and launchSettings.json,
+    # so the emulator's host.docker.internal:18800 upstream and the Vite /api proxy work
+    # either way. Stop this service to free the port and run the function on the host instead.
     ports:
-      - "7071:80"
+      - "18800:80"
     environment:
       AzureWebJobsStorage: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
       ServiceBusConnection: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
@@ -78,13 +78,13 @@ services:
     # 1:1 mapping is deliberate. Vite's HMR client connects back to the same
     # host:port the page was served from, so remapping would break hot reload.
     ports:
-      - "5173:5173"
+      - "18801:18801"
     environment:
-      # Hairpins through the published host port 7071 -- the same trick the
+      # Hairpins through the published host port 18800 -- the same trick the
       # signalr-emulator upstream uses. message-hub:80 would be one hop shorter
       # but would break the `docker compose stop message-hub` + `func start`
       # fallback, since that moves the function off the compose network.
-      API_PROXY_TARGET: "http://host.docker.internal:7071"
+      API_PROXY_TARGET: "http://host.docker.internal:18800"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -113,14 +113,14 @@ services:
       context: ./MessageSender
     container_name: message-sender
     # 1:1 mapping for the same reason as message-receiver -- Vite's HMR client connects
-    # back to the host:port the page was served from. 5175 rather than 5174, because 5174
-    # is exactly where Vite silently lands when 5173 is already taken.
+    # back to the host:port the page was served from. Both apps set strictPort, so a taken
+    # port fails loudly rather than letting one app slide onto the other's port.
     ports:
-      - "5175:5175"
+      - "18802:18802"
     environment:
       # Same hairpin as message-receiver: through the published host port, so
       # `docker compose stop message-hub` + `func start` on the host keeps working.
-      API_PROXY_TARGET: "http://host.docker.internal:7071"
+      API_PROXY_TARGET: "http://host.docker.internal:18800"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -140,27 +140,26 @@ services:
     networks:
       - signalr-fun
 
-  # Infrastructure below mirrors the avdekl Aspire AppHost (ac-avdekl/src/avdekl-aspire): same
-  # pinned image tags, and Cosmos/Service Bus/MSSQL on the same fixed host ports (Aspire's Azurite
-  # ports are dynamic). It also means the two can't run at once -- stop Aspire's persistent
-  # containers first (`./containers.sh stop` there). Bump tags in step with AppHost.cs.
+  # Infrastructure below uses the same pinned image tags as the avdekl Aspire AppHost
+  # (ac-avdekl/src/avdekl-aspire) -- bump them in step with AppHost.cs -- but its own host ports,
+  # so both stacks can run at once, each with its own copy.
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.37.0
     container_name: azurite
     ports:
-      - "10000:10000"
-      - "10001:10001"
-      - "10002:10002"
+      - "18830:10000"
+      - "18831:10001"
+      - "18832:10002"
     networks:
       - signalr-fun
 
   cosmosdb-emulator:
     image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260907
     container_name: cosmosdb-emulator
-    # Data Explorer on host 7504, the Aspire AppHost's port for it (the emulator's own is 1234).
+    # 18810 is the gateway, 18811 the Data Explorer.
     ports:
-      - "8081:8081"
-      - "7504:1234"
+      - "18810:8081"
+      - "18811:1234"
     # Named volume, not a bind mount. /data holds a Postgres cluster owned by uid 1000
     # (cosmosdev); Docker seeds a new *named* volume from the image's content and ownership,
     # whereas a host bind mount would start empty and root-owned and Postgres would fail to
@@ -181,8 +180,8 @@ services:
     container_name: servicebus-emulator
     pull_policy: always
     ports:
-      - "5672:5672"
-      - "5300:5300"
+      - "18820:5672"
+      - "18821:5300"
     volumes:
       - ./servicebus-emulator.config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
     environment:
@@ -202,7 +201,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2025-CU8-ubuntu-24.04
     container_name: servicebus-emulator-mssql
     ports:
-      - "1433:1433"
+      - "18840:1433"
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "1StrongPwd!!"

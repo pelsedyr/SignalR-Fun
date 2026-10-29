@@ -38,7 +38,7 @@ builder.Services.AddSingleton(serviceProvider =>
         // LimitToEndpoint stops the SDK doing region discovery and pins it to the configured
         // endpoint. Not strictly required — the emulator derives the endpoint it advertises in
         // writableLocations from the request's Host header, so it correctly reports
-        // cosmosdb-emulator:8081 to this container and localhost:8081 to the host — but a
+        // cosmosdb-emulator:8081 to this container and localhost:18810 to the host — but a
         // single-region emulator has nothing to discover, and pinning removes a failure mode
         // that would otherwise depend on that header being right.
         ConnectionMode = ConnectionMode.Gateway,

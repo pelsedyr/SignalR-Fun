@@ -16,12 +16,16 @@ export default defineConfig({
     },
   },
   server: {
+    // This project's port range (18800-18899), so it can run alongside the avdekl stack.
+    port: 18801,
+    // Fail loudly instead of sliding to 18802, which is MessageSender's port.
+    strictPort: true,
     proxy: {
-      // Unset on the host, so `npm run dev` still proxies to localhost:7071.
+      // Unset on the host, so `npm run dev` still proxies to localhost:18800.
       // The container sets it, because inside a container localhost is the
       // container itself. Not VITE_-prefixed: this stays server-side and must
       // not be inlined into the client bundle.
-      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:7071',
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:18800',
     },
   },
 })

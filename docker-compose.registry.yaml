@@ -18,8 +18,8 @@ services:
   signalr-emulator:
     image: "${IMAGE_PREFIX:-signalr-fun}/signalr-emulator:${IMAGE_TAG:-latest}"
     restart: unless-stopped
-    # Host 18888 rather than 8888, which the avdekl Aspire AppHost's emulator holds. A reverse
-    # proxy in front of SIGNALR_CLIENT_ENDPOINT must forward to this port.
+    # Host ports here match docker-compose.yaml (all in 18800-18899, clear of the avdekl Aspire
+    # AppHost). A reverse proxy in front of SIGNALR_CLIENT_ENDPOINT must forward to 18888.
     ports:
       - "18888:8888"
     volumes:
@@ -31,7 +31,7 @@ services:
     image: "${IMAGE_PREFIX:-signalr-fun}/message-hub:${IMAGE_TAG:-latest}"
     restart: unless-stopped
     ports:
-      - "7071:80"
+      - "18800:80"
     environment:
       AzureWebJobsStorage: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
       ServiceBusConnection: "Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
@@ -61,7 +61,7 @@ services:
     # Host port matches docker-compose.yaml's Vite port for consistency, even though this
     # container serves the built bundle over Nginx on 80 instead (no HMR to keep aligned).
     ports:
-      - "5173:80"
+      - "18801:80"
     depends_on:
       - message-hub
     networks:
@@ -73,22 +73,21 @@ services:
     # Host port matches docker-compose.yaml's Vite port for consistency, even though this
     # container serves the built bundle over Nginx on 80 instead (no HMR to keep aligned).
     ports:
-      - "5175:80"
+      - "18802:80"
     depends_on:
       - message-hub
     networks:
       - signalr-fun
 
-  # Infrastructure below mirrors the avdekl Aspire AppHost, exactly as in docker-compose.yaml:
-  # same pinned tags, and Cosmos/Service Bus/MSSQL on the same fixed host ports. Stop Aspire's persistent containers before `up`, or these
-  # fail to bind their ports (`./containers.sh stop` in ac-avdekl/src/avdekl-aspire).
+  # Infrastructure below uses the avdekl Aspire AppHost's pinned image tags but its own host
+  # ports, exactly as in docker-compose.yaml, so it can run alongside Aspire's containers.
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.37.0
     restart: unless-stopped
     ports:
-      - "10000:10000"
-      - "10001:10001"
-      - "10002:10002"
+      - "18830:10000"
+      - "18831:10001"
+      - "18832:10002"
     networks:
       - signalr-fun
 
@@ -96,8 +95,8 @@ services:
     image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-EN20260907
     restart: unless-stopped
     ports:
-      - "8081:8081"
-      - "7504:1234"
+      - "18810:8081"
+      - "18811:1234"
     volumes:
       - cosmos-data:/data
     healthcheck:
@@ -113,8 +112,8 @@ services:
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
     restart: unless-stopped
     ports:
-      - "5672:5672"
-      - "5300:5300"
+      - "18820:5672"
+      - "18821:5300"
     volumes:
       - ./servicebus-emulator.config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
     environment:
@@ -131,7 +130,7 @@ services:
     image: mcr.microsoft.com/mssql/server:2025-CU8-ubuntu-24.04
     restart: unless-stopped
     ports:
-      - "1433:1433"
+      - "18840:1433"
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "1StrongPwd!!"

@@ -295,12 +295,12 @@ static string GetConfiguration(string key, string fallback)
 static string ResolveDefaultConnectionString()
 {
     const string localhost =
-        "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
+        "Endpoint=sb://localhost:18820;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
 
     var host = FindServiceBusHostFromEnvRegistry();
     if (string.IsNullOrWhiteSpace(host))
     {
-        Console.WriteLine("Using the local Service Bus emulator (sb://localhost).");
+        Console.WriteLine("Using the local Service Bus emulator (sb://localhost:18820).");
         Console.WriteLine("Tip: set SERVICEBUS_HOST in .env.registry to connect to an externally-exposed emulator instead.");
         Console.WriteLine();
         return localhost;
@@ -310,7 +310,7 @@ static string ResolveDefaultConnectionString()
     var answer = Console.ReadLine()?.Trim();
     if (!string.IsNullOrEmpty(answer) && !answer.Equals("y", StringComparison.OrdinalIgnoreCase))
     {
-        Console.WriteLine("Using the local Service Bus emulator (sb://localhost).");
+        Console.WriteLine("Using the local Service Bus emulator (sb://localhost:18820).");
         Console.WriteLine();
         return localhost;
     }

@@ -10,8 +10,8 @@ RUN npm ci
 
 COPY . .
 
-EXPOSE 5175
+EXPOSE 18802
 # --host 0.0.0.0 is required: Vite binds loopback only, which is unreachable from
 # outside the container. Passing it here rather than in vite.config.js leaves the
 # host `npm run dev` behaviour (loopback only) untouched.
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5175"]
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "18802"]

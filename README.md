@@ -39,8 +39,8 @@ docker compose up -d --build
 
 That's the whole stack — emulators, the function and the frontend.
 
-Open http://localhost:5173 and connect as `bursdag`. Then send it something — either from
-the sender app at http://localhost:5175, or from the CLI:
+Open http://localhost:18801 and connect as `bursdag`. Then send it something — either from
+the sender app at http://localhost:18802, or from the CLI:
 
 ```bash
 cd cli/ServiceBusPostTool && dotnet run -- bursdag "hei"
@@ -81,7 +81,7 @@ IMAGE_PREFIX=registry.example.net/registry/signalr-fun
 always agree on where images live without either one prompting or hardcoding a URL.
 `SERVICEBUS_HOST` is optional — it's read by `cli/ServiceBusPostTool` and `cli/ServiceBusPeekTool`
 if a Service Bus emulator is ever exposed outside Docker, so those tools can offer that host as
-an alternative to `sb://localhost` (see their READMEs for details). `REGISTRY_USERNAME` /
+an alternative to `sb://localhost:18820` (see their READMEs for details). `REGISTRY_USERNAME` /
 `REGISTRY_PASSWORD` are optional too — set both if the registry requires authentication (e.g.
 `REGISTRY_AUTH=htpasswd`), and both scripts will `docker login` with them before pushing/pulling.
 
@@ -126,7 +126,7 @@ IMAGE_PREFIX=registry.example.net/registry/signalr-fun IMAGE_TAG=1.0.0 \
 docker compose -f docker-compose.registry.yaml up -d
 ```
 
-Open `http://<host>:5173`. Tear down with `docker compose -f docker-compose.registry.yaml down`
+Open `http://<host>:18801`. Tear down with `docker compose -f docker-compose.registry.yaml down`
 (add `-v` to also drop the `cosmos-data` volume), or run `./teardown-registry-containers.sh`.
 
 If Nginx Proxy Manager ever needs to run on this *same* Docker host and reach containers by
@@ -142,25 +142,34 @@ external network. Configure proxy hosts for `message-receiver:80` and `message-s
 
 | Path | What it is | How it runs |
 |---|---|---|
-| `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate`, `GetNotifications`, `MarkNotificationRead`, `SendNotification` (HTTP) + `ServiceBusQueueTrigger` (Service Bus → Cosmos → SignalR) | container, port 7071 |
-| `MessageReceiver/` | React 19 + Vite SPA using `@microsoft/signalr`; renders from the REST API, nudged by SignalR | container, port 5173 |
-| `MessageSender/` | React 19 + Vite SPA; posts to `POST /api/notifications`, which enqueues onto the Service Bus queue. A browser-shaped `ServiceBusPostTool` | container, port 5175 |
+| `MessageHub/` | Azure Functions v4, .NET 10 isolated worker. `Negotiate`, `GetNotifications`, `MarkNotificationRead`, `SendNotification` (HTTP) + `ServiceBusQueueTrigger` (Service Bus → Cosmos → SignalR) | container, port 18800 |
+| `MessageReceiver/` | React 19 + Vite SPA using `@microsoft/signalr`; renders from the REST API, nudged by SignalR | container, port 18801 |
+| `MessageSender/` | React 19 + Vite SPA; posts to `POST /api/notifications`, which enqueues onto the Service Bus queue. A browser-shaped `ServiceBusPostTool` | container, port 18802 |
 | `cli/ServiceBusPostTool/` | Posts `NotificationDto` messages onto the queue | host, `dotnet run` |
 | `cli/ServiceBusPeekTool/` | Non-destructive queue watcher; drains on exit | host, `dotnet run` |
 | `Dockerfile` | Builds the Azure SignalR emulator image | container, port 8888 (host 18888) |
 | `servicebus-emulator.config.json` | Declares the `signalr-fun-notifications` queue | mounted into the emulator |
 | `signalr-emulator.settings.json` | Upstream webhook template | mounted into the emulator |
 
-Ports: `5173` receiver frontend · `5175` sender frontend · `7071` function · `18888` SignalR emulator · `8081` Cosmos gateway ·
-`7504` Cosmos data explorer · `5672`/`5300` Service Bus emulator · `10000-10002` Azurite ·
-`1433` MSSQL (backing store for the Service Bus emulator). Same list for both
-`docker-compose.yaml` and `docker-compose.registry.yaml`.
+Every host port is in this project's own range, **18800–18899**. The same list applies to
+`docker-compose.yaml` and `docker-compose.registry.yaml`:
 
-The infrastructure uses the same image tags as the avdekl Aspire AppHost
-(`ac-avdekl/src/avdekl-aspire`), and Cosmos (`8081`), Service Bus (`5672`) and MSSQL (`1433`)
-also the same host ports, so only one of the two can run at a time: stop Aspire's persistent containers first with `./containers.sh stop` there. The
-SignalR emulator is the exception. It's built here with this project's upstream settings, so it
-sits on host port `18888` instead of Aspire's `8888`, and the two can run side by side.
+| Host port | Service | Container port |
+|---|---|---|
+| 18800 | MessageHub (function) | 80 |
+| 18801 | MessageReceiver | 18801 (dev) / 80 (registry) |
+| 18802 | MessageSender | 18802 (dev) / 80 (registry) |
+| 18810 / 18811 | Cosmos gateway / Data Explorer | 8081 / 1234 |
+| 18820 / 18821 | Service Bus AMQP / HTTP | 5672 / 5300 |
+| 18830–18832 | Azurite blob / queue / table | 10000–10002 |
+| 18840 | MSSQL (backing store for the Service Bus emulator) | 1433 |
+| 18888 | SignalR emulator | 8888 |
+
+Inside the compose network everything still uses the container ports (`cosmosdb-emulator:8081`,
+`sb://servicebus-emulator`, …), so only host-side tools see the 188xx numbers. The range keeps
+this stack clear of the avdekl Aspire AppHost (`ac-avdekl/src/avdekl-aspire`), which keeps the
+protocol defaults, so the two can run at the same time. The infrastructure images use the same
+pinned tags as that AppHost.
 
 ## Prerequisites
 
@@ -202,12 +211,12 @@ Apply those with `docker compose up -d`.
 
 ### Running one of them on the host instead
 
-Every container publishes the same port its host tooling uses — 7071 for `func start`,
-5173 and 5175 for `npm run dev` — so the SignalR emulator's upstream, the `/api` proxy and
-the editor tasks don't care which side is running. Stop the container to free the port:
+Every container publishes the same port its host tooling uses — 18800 for the function,
+18801 and 18802 for `npm run dev` — so the SignalR emulator's upstream and the `/api` proxy
+don't care which side is running. Stop the container to free the port:
 
 ```bash
-docker compose stop message-hub      && cd MessageHub      && func start
+docker compose stop message-hub      && cd MessageHub      && func start --port 18800
 docker compose stop message-receiver && cd MessageReceiver && npm run dev
 docker compose stop message-sender   && cd MessageSender   && npm run dev
 ```
@@ -216,11 +225,10 @@ Worth doing for MessageHub when you're iterating hard or want a debugger attache
 `func start` loop is a few seconds versus ~26 for a container rebuild. Rarely worth it for
 the frontend, since the container already hot-reloads.
 
-**Watch out:** `func start` fails loudly if 7071 is taken, and so does MessageSender —
-its `vite.config.js` sets `strictPort: true`. MessageReceiver does *not*: it prints
-`Port 5173 is in use, trying another one...` and quietly moves to **5174**. If the receiver
-page looks stale, check whether the container is still holding 5173. Nothing is meant to
-live on 5174, so a page there is always a stray fallback.
+**Watch out:** plain `func start` uses Core Tools' default port 7071, which nothing here
+listens on, so always pass `--port 18800` (`launchSettings.json` already does, for IDEs). Both
+frontends set `strictPort: true`, so `npm run dev` fails loudly if the container still holds
+the port, instead of sliding onto the neighbouring app's port.
 
 ## Configuration
 
@@ -248,7 +256,7 @@ A third that bites the same way, added with Cosmos:
   backend protocol. `LimitToEndpoint = true` sits alongside it to skip region discovery.
   Worth knowing: the emulator derives the endpoint it advertises in `writableLocations` from
   the request's `Host` header, so it already reports `cosmosdb-emulator:8081` to the container
-  and `localhost:8081` to the host without any configuration. `GATEWAY_PUBLIC_ENDPOINT` exists
+  and `localhost:18810` to the host without any configuration. `GATEWAY_PUBLIC_ENDPOINT` exists
   to force a fixed value and is deliberately left unset — setting it to the compose service name
   would break the host `func start` fallback.
 
@@ -256,7 +264,7 @@ Cosmos settings, following the same host/container split:
 
 | | Host (`func start`) | Container |
 |---|---|---|
-| `CosmosConnection` | `AccountEndpoint=http://localhost:8081/;…` | `AccountEndpoint=http://cosmosdb-emulator:8081/;…` |
+| `CosmosConnection` | `AccountEndpoint=http://localhost:18810/;…` | `AccountEndpoint=http://cosmosdb-emulator:8081/;…` |
 | `Cosmos__DatabaseId` | `log` | `log` |
 | `Cosmos__ContainerId` | `notifications` | `notifications` |
 
@@ -271,18 +279,18 @@ Both frontends have one setting of the same shape, `API_PROXY_TARGET`, read by
 
 | | Host (`npm run dev`) | Container |
 |---|---|---|
-| `API_PROXY_TARGET` | unset → falls back to `http://localhost:7071` | `http://host.docker.internal:7071` |
+| `API_PROXY_TARGET` | unset → falls back to `http://localhost:18800` | `http://host.docker.internal:18800` |
 
 Inside a container `localhost` is the container itself, so the proxy has to reach out to
 the host. Going straight to `message-hub:80` over the compose network would be one hop
 shorter, but it would break as soon as you stop the container and run `func start` — the
-hairpin through host port 7071 works either way. Note the name is deliberately *not*
+hairpin through host port 18800 works either way. Note the name is deliberately *not*
 `VITE_`-prefixed, which keeps it server-side and out of the client bundle.
 
 ## API
 
-All five functions are HTTP-anonymous and served under `/api` on port `7071`. The frontends
-reach them through the Vite proxy on `5173` and `5175`, so either origin works.
+All five functions are HTTP-anonymous and served under `/api` on port `18800`. The frontends
+reach them through the Vite proxy on `18801` and `18802`, so either origin works.
 
 `userId` is a plain query parameter throughout, matching the shortcut in `Negotiate.cs`. A real
 deployment derives it from an authenticated claim — until then, anyone can pass any id.
@@ -297,7 +305,7 @@ directly to the SignalR service.
 | `userId` | query | yes | Becomes the SignalR user id the nudge is addressed to |
 
 ```bash
-curl -sX POST 'http://localhost:7071/api/negotiate?userId=bursdag'
+curl -sX POST 'http://localhost:18800/api/negotiate?userId=bursdag'
 # 200 → {"url":"http://localhost:18888/client/?hub=notifications","accessToken":"…"}
 ```
 
@@ -313,7 +321,7 @@ The inbox. This is the **only** source of rendered notification data — SignalR
 Returns newest-first (`ORDER BY c.createdUtc DESC`).
 
 ```bash
-curl -s 'http://localhost:7071/api/notifications?userId=bursdag'
+curl -s 'http://localhost:18800/api/notifications?userId=bursdag'
 ```
 
 ```json
@@ -347,7 +355,7 @@ that would mean shipping the connection string into client-side JavaScript.
 | `content` | body | yes | Trimmed, max 4096 chars |
 
 ```bash
-curl -sX POST 'http://localhost:7071/api/notifications' \
+curl -sX POST 'http://localhost:18800/api/notifications' \
   -H 'content-type: application/json' \
   -d '{"receiverId":"bursdag","content":"hei"}'
 # 202 → {"id":"71ef41c9-78b8-45b1-bdf2-2842409959d6","receiverId":"bursdag"}
@@ -373,7 +381,7 @@ Marks one notification read by stamping `readUtc`.
 | `userId` | query | yes | Partition key — required because this is a point write |
 
 ```bash
-curl -sX POST 'http://localhost:7071/api/notifications/<id>/read?userId=bursdag'
+curl -sX POST 'http://localhost:18800/api/notifications/<id>/read?userId=bursdag'
 ```
 
 | Status | When |
@@ -449,13 +457,13 @@ docker compose logs -f message-sender                     # same, for the sender
 docker compose ps                                         # what's up
 cd cli/ServiceBusPeekTool && dotnet run                    # watch the queue (Q to quit + drain)
 cd cli/ServiceBusPostTool && dotnet run                    # interactive post mode
-curl -s 'http://localhost:5173/api/notifications?userId=bursdag'      # the inbox, via the proxy
-curl -sX POST 'http://localhost:5173/api/negotiate?userId=bursdag'   # tests the whole proxy chain
-curl -sX POST 'http://localhost:5175/api/notifications' \
+curl -s 'http://localhost:18801/api/notifications?userId=bursdag'      # the inbox, via the proxy
+curl -sX POST 'http://localhost:18801/api/negotiate?userId=bursdag'   # tests the whole proxy chain
+curl -sX POST 'http://localhost:18802/api/notifications' \
   -H 'content-type: application/json' \
   -d '{"receiverId":"bursdag","content":"hei"}'                       # the send path, via the sender's proxy
-curl -s http://localhost:8081/dbs/log/colls                            # Cosmos container + partition key
-open http://localhost:7504                                             # Cosmos data explorer
+curl -s http://localhost:18810/dbs/log/colls                            # Cosmos container + partition key
+open http://localhost:18811                                            # Cosmos data explorer
 docker compose down                                       # stop; notifications SURVIVE
 docker compose down -v                                    # stop and wipe Cosmos data
 ```
@@ -474,8 +482,6 @@ default to the emulator and `signalr-fun-notifications`.
   in this app, and the output binding talks to the emulator directly over REST. It may
   return 401 in container mode (Core Tools disables key auth, the real host doesn't). It
   doesn't matter today, but it would if a `SignalRTrigger` is ever added.
-- `MessageHub/Properties/launchSettings.json` says port 7232 while everything else assumes
-  7071.
 - `NotificationDto` is duplicated between `MessageHub/` and `cli/ServiceBusPostTool/`.
 - `POST /api/notifications` is anonymous and takes `receiverId` from the body, so anyone who
   can reach it can send a notification to anyone. Same shortcut as `userId` on the read side,
